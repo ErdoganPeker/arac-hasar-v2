@@ -25,6 +25,7 @@ import logging
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -340,8 +341,9 @@ class MLPipeline:
         """Pretrained Roboflow scratch_dent v3 modelini HTTP API ile cagir.
 
         Custom pipeline atlatilir; ne damage modeli ne parts ne severity
-        yuklenir. Sadece bbox-detection sonucu doner. Frontend bunu
-        "Roboflow ile basit hasar tespiti" olarak gosterir.
+        yuklenir. Frontend Inspection schema uyumlu bir cikti uretir:
+        Roboflow detection'lari `unassigned_damages` listesine konur
+        (parts boş kalir, schema match olur).
         """
         import cv2  # local import
         from roboflow_inference import (  # type: ignore
@@ -361,30 +363,106 @@ class MLPipeline:
             raise RuntimeError("Goruntu JPEG encode edilemedi")
         img_bytes = buf.tobytes()
 
-        damages = run_roboflow_damage_inference(
+        raw_damages = run_roboflow_damage_inference(
             img_bytes,
             workspace="carpro",
             project="car-scratch-and-dent",
             version=3,
         )
 
+        # TR ceviri + frontend Damage schema'sina map et
+        TR = {"dent": "Göçük", "scratch": "Çizik", "damage": "Hasar"}
+        SEVERITY_TR = {"hafif": "Hafif", "orta": "Orta", "agir": "Ağır"}
+
+        unassigned: list[dict[str, Any]] = []
+        for d in raw_damages:
+            x1, y1, x2, y2 = d.get("bbox", [0, 0, 0, 0])
+            bbox_w = max(0.0, x2 - x1)
+            bbox_h = max(0.0, y2 - y1)
+            area_ratio = (bbox_w * bbox_h) / max(1.0, float(w) * float(h))
+            # Basit kural-tabanli severity (confidence + alan)
+            conf = float(d.get("confidence", 0.0))
+            if area_ratio > 0.15 or conf > 0.85:
+                sev_level, sev_conf = "orta", 0.5
+            elif area_ratio > 0.05 or conf > 0.7:
+                sev_level, sev_conf = "hafif", 0.5
+            else:
+                sev_level, sev_conf = "hafif", 0.4
+
+            dtype = d.get("class") or "damage"
+            unassigned.append({
+                "id": d.get("id", 0),
+                "type": dtype,
+                "type_tr": TR.get(dtype, dtype.title()),
+                "confidence": conf,
+                "bbox": d.get("bbox", [0, 0, 0, 0]),
+                "polygon": d.get("polygon", []) or [],
+                "polygon_normalized": [],  # detection-only model
+                "area_ratio": area_ratio,
+                "severity": {
+                    "level": sev_level,
+                    "level_tr": SEVERITY_TR.get(sev_level, sev_level.title()),
+                    "confidence": sev_conf,
+                    "method": "rule_based_roboflow",
+                },
+                "cost": {
+                    "min_tl": 0,
+                    "max_tl": 0,
+                    "confidence": "low",
+                    "source": "roboflow_no_cost",
+                },
+                "is_multi_part": False,
+                "is_low_confidence_match": False,
+                "source": "roboflow",
+            })
+
+        total_damage = len(unassigned)
+        most_severe = None
+        most_severe_tr = None
+        if unassigned:
+            # En agir level'i bul
+            order = {"hafif": 1, "orta": 2, "agir": 3}
+            top = max(unassigned, key=lambda u: order.get(u["severity"]["level"], 0))
+            most_severe = top["severity"]["level"]
+            most_severe_tr = top["severity"]["level_tr"]
+
         return {
-            "image_size": {"width": int(w), "height": int(h)},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "image": {"url": None, "width": int(w), "height": int(h)},
             "parts": [],
-            "damages": damages,
+            "unassigned_damages": unassigned,
+            "multi_part_damages": [],
             "summary": {
-                "total_damage_count": len(damages),
-                "estimated_repair_days": 0,
+                "total_parts_inspected": 0,
+                "damaged_parts_count": 0,
+                "clean_parts_count": 0,
+                "total_damage_count": total_damage,
+                "unknown_part_damages_count": total_damage,
+                "multi_part_damages_count": 0,
+                "most_severe_level": most_severe,
+                "most_severe_level_tr": most_severe_tr,
+                "total_damage_area_ratio": sum(u["area_ratio"] for u in unassigned),
+                "total_cost_range_tl": [0, 0],
+                "total_cost_midpoint_tl": 0,
+                "cost_confidence": "low",
+                "repair_recommendation": "manual_review" if unassigned else "hasar_yok",
+                "repair_recommendation_tr": (
+                    "Manuel inceleme önerilir (Roboflow: maliyet yok)"
+                    if unassigned else "Hasar tespit edilmedi"
+                ),
+                "estimated_repair_days": 1 if unassigned else 0,
                 "model_source": "roboflow",
                 "note": (
                     "Roboflow scratch_dent v3 hosted inference. "
-                    "Parca segmentasyonu ve siddet siniflandirmasi yok; "
-                    "sadece basit hasar bbox tespiti."
+                    "Parça segmentasyonu / maliyet hesaplaması yapılmaz."
                 ),
             },
+            "visualization_urls": {"annotated": None, "parts": None, "damages": None},
             "model_versions": {
                 "pretrained_source": "roboflow_cardd_scratch_dent_v3",
+                "requested_model": "pretrained_roboflow_cardd",
             },
+            "model_source": "roboflow",
         }
 
 
@@ -533,29 +611,37 @@ def check_model_files_available(model_id: Optional[str]) -> tuple[bool, str]:
     if not model_id or model_id == DEFAULT_MODEL_ID:
         return True, ""
     try:
-        from pretrained_registry import REGISTRY  # type: ignore
-        entry = REGISTRY.get(model_id) if isinstance(REGISTRY, dict) else None
-        if entry is None:
-            for m in list_available_models():
-                if m.get("id") == model_id:
-                    if m.get("available") is False:
-                        return False, (
-                            f"'{m.get('name', model_id)}' modeli bu deploy'da "
-                            "indirilmemis. Lutfen 'Kendi Modellerim' (custom) "
-                            "secenegini kullanin."
-                        )
-                    return True, ""
-            return False, f"Model bulunamadi: {model_id}"
-        if hasattr(entry, "is_available") and not entry.is_available():
-            return False, (
-                f"'{getattr(entry, 'name', model_id)}' modeli bu deploy'da "
-                "indirilmemis. Lutfen 'Kendi Modellerim' (custom) "
-                "secenegini kullanin."
-            )
-        return True, ""
+        # Registry'den entry'i al — modul `get_registry()` veya direkt erisim
+        # destekliyor. REGISTRY sembolu yok; eski kodda hata kaynagiydi.
+        from pretrained_registry import get_registry  # type: ignore
+        reg = get_registry()
+        entry = None
+        # PretrainedRegistry sinifinda get() metodu var
+        if hasattr(reg, "get"):
+            entry = reg.get(model_id)
+        # Eger entry uygunsa dosya/key check
+        if entry is not None and hasattr(entry, "is_available"):
+            if not entry.is_available():
+                return False, (
+                    f"'{getattr(entry, 'name', model_id)}' modeli bu deploy'da "
+                    "indirilmemis. Lutfen 'Kendi Modellerim' (custom) "
+                    "secenegini kullanin."
+                )
+            return True, ""
+        # Source-level model_id ise (pretrained_roboflow_cardd vs)
+        for m in list_available_models():
+            if m.get("id") == model_id:
+                if m.get("available") is False:
+                    return False, (
+                        f"'{m.get('name', model_id)}' modeli bu deploy'da "
+                        "indirilmemis. Lutfen 'Kendi Modellerim' (custom) "
+                        "secenegini kullanin."
+                    )
+                return True, ""
+        return False, f"Model bulunamadi: {model_id}"
     except Exception as exc:  # noqa: BLE001
         logger.warning("check_model_files_available hata: %s", exc)
-        return True, ""
+        return True, ""  # fail-open; gerçek inference patlarsa orada handle
 
 
 def resolve_model_id(model_id: Optional[str]) -> str:

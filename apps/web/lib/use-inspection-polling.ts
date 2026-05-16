@@ -25,7 +25,8 @@ export interface UseInspectionPollingOptions {
   intervalMs?: number;
   /**
    * Max polling duration in ms before giving up.
-   * Default 180_000 (3 min) — large enough for 20-image async batches.
+   * Default 600_000 (10 min) — CPU inference can be 9-36s/foto; 20 foto
+   * batch = up to 12 dakika. 3dk default kullanıcıyı erken "timeout" yapıyordu.
    */
   maxDurationMs?: number;
   /** Max single interval after exponential backoff. Default 8000. */
@@ -57,7 +58,7 @@ export function useInspectionPolling(
 ): PollingReturn {
   const {
     intervalMs = 1_500,
-    maxDurationMs = 180_000,
+    maxDurationMs = 600_000,
     maxIntervalMs = 8_000,
     enabled = true,
   } = opts;

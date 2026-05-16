@@ -347,11 +347,18 @@ export const inspections = {
     // it automatically so that the multipart boundary token is included in
     // the header. Setting `Content-Type: multipart/form-data` here strips the
     // boundary and the backend rejects the upload as malformed.
+    // CPU-only HF Spaces: tek inference 9-36s; N foto * 45s + upload süresi
+    // global 60s timeout'u aşar → "Bağlantı zaman aşımı" yanlış göstergesi.
+    // Per-call uzatma: en az 5dk, foto başına 60s. Sync mode'da kritik.
+    const dynamicTimeout = mode === 'sync'
+      ? Math.max(300_000, files.length * 60_000)
+      : 120_000;
     const res = await client().post<
       InspectionCreateResponse | SyncInspectionResponse
     >(path, form, {
       headers: apiKey ? { 'X-API-Key': apiKey } : undefined,
       signal,
+      timeout: dynamicTimeout,
       onUploadProgress: (evt) => {
         if (onUploadProgress && evt.total) {
           onUploadProgress(evt.loaded, evt.total);

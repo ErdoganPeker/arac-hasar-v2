@@ -36,10 +36,17 @@ logger = logging.getLogger(__name__)
 
 # ============================ Celery app ============================
 
+_broker_url = settings.redis_url
+# Upstash/managed Redis genelde rediss:// (TLS) — kombu default insecure
+# warning veriyor + 'ssl_cert_reqs' eksik error firlatiyor. Explicit set.
+import ssl as _ssl
+_uses_tls = _broker_url.startswith("rediss://")
+_ssl_opts = {"ssl_cert_reqs": _ssl.CERT_NONE} if _uses_tls else None
+
 celery_app = Celery(
     "arac_hasar",
-    broker=settings.redis_url,
-    backend=settings.redis_url,
+    broker=_broker_url,
+    backend=_broker_url,
 )
 
 celery_app.conf.update(
@@ -48,15 +55,17 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="Europe/Istanbul",
     enable_utc=True,
-    # Limitler — uzun pipeline'lara karsi guvenli
     task_soft_time_limit=180,
     task_time_limit=240,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
-    worker_prefetch_multiplier=1,  # GPU bound: bir seferde 1 task al
-    worker_max_tasks_per_child=50,  # Memory leak korumasi
+    worker_prefetch_multiplier=1,
+    worker_max_tasks_per_child=50,
     broker_connection_retry_on_startup=True,
 )
+if _ssl_opts:
+    celery_app.conf.broker_use_ssl = _ssl_opts
+    celery_app.conf.redis_backend_use_ssl = _ssl_opts
 
 
 # ============================ Pub-sub helper ============================

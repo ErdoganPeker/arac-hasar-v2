@@ -177,18 +177,26 @@ export function ImageWithOverlay({
       )}
       style={{ aspectRatio }}
     >
-      <img
-        src={imageUrl}
-        alt={alt}
-        draggable={false}
-        loading="lazy"
-        decoding="async"
-        className="block h-full w-full select-none object-contain"
-        onLoad={(e) => {
-          const t = e.currentTarget;
-          setImgDim({ w: t.naturalWidth, h: t.naturalHeight });
-        }}
-      />
+      {/* Guard: backend STORAGE_OPTIONAL'da `local://skipped/...` URL'i
+          dönebilir; browser bunu fetch edemez — placeholder göster. */}
+      {imageUrl && !imageUrl.startsWith('local://') ? (
+        <img
+          src={imageUrl}
+          alt={alt}
+          draggable={false}
+          loading="lazy"
+          decoding="async"
+          className="block h-full w-full select-none object-contain"
+          onLoad={(e) => {
+            const t = e.currentTarget;
+            setImgDim({ w: t.naturalWidth, h: t.naturalHeight });
+          }}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-slate-100 text-sm text-slate-500">
+          Görsel kaydedilmedi (storage opsiyonel mod)
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         className="pointer-events-none absolute inset-0 h-full w-full"

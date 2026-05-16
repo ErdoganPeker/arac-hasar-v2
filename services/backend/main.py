@@ -360,8 +360,10 @@ def update_inspection(inspection_id: str, **fields) -> None:
         return
     sets = []
     values: list = []
+    # JSONB sutunlar — psycopg2 dict adapt edemiyor, manuel json-dump.
+    _JSONB_COLS = {"result", "image_urls", "model_versions", "metadata"}
     for k, v in fields.items():
-        if k in ("result", "image_urls"):
+        if k in _JSONB_COLS:
             v = _json.dumps(v) if v is not None else None
         sets.append(f"{k} = %s")
         values.append(v)
@@ -959,34 +961,81 @@ async def _process_sync(files: List[UploadFile], auth: AuthContext,
     results: List[dict] = []
     per_image: List[dict] = []
 
+    failed_indices: List[int] = []
     for i, f in enumerate(files):
-        content, url = await _store_upload(f, inspection_id, i)
-        image_urls.append(url)
-        img = _decode_image(content, i)
-        # GPU inference event-loop'u bloklamasin -> threadpool
         try:
-            # ml_pipeline.analyze(image, retries=2, source=...)
+            content, url = await _store_upload(f, inspection_id, i)
+        except HTTPException:
+            raise  # 400/413 - validation, kullaniciya net don
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Store upload hatasi index=%d: %s", i, e)
+            per_image.append({
+                "index": i, "url": None, "status": "failed",
+                "error": f"Goruntu yuklenemedi: {e}",
+                "image": {"url": None}, "parts": [], "summary": {},
+                "unassigned_damages": [], "multi_part_damages": [],
+            })
+            failed_indices.append(i)
+            continue
+        image_urls.append(url)
+        try:
+            img = _decode_image(content, i)
+        except HTTPException as e:
+            per_image.append({
+                "index": i, "url": url, "status": "failed",
+                "error": str(e.detail),
+                "image": {"url": url}, "parts": [], "summary": {},
+                "unassigned_damages": [], "multi_part_damages": [],
+            })
+            failed_indices.append(i)
+            continue
+        # GPU inference event-loop'u bloklamasin -> threadpool
+        # Per-image error containment: tek foto fail tum batch'i ucurmasin.
+        try:
             r = await asyncio.to_thread(ml_pipeline.analyze, img, 2, model)
         except RuntimeError as e:
-            # ML pipeline yuklenememis (pipeline.py yok vb)
-            logger.error("ML pipeline runtime hatasi: %s", e)
-            raise HTTPException(status_code=503, detail="ML servisi su an kullanilamiyor")
+            logger.error("ML pipeline runtime hatasi index=%d: %s", i, e)
+            if len(files) == 1:
+                raise HTTPException(status_code=503, detail="ML servisi su an kullanilamiyor")
+            per_image.append({
+                "index": i, "url": url, "status": "failed",
+                "error": f"ML servisi: {e}",
+                "image": {"url": url}, "parts": [], "summary": {},
+                "unassigned_damages": [], "multi_part_damages": [],
+            })
+            failed_indices.append(i)
+            continue
         except Exception as e:  # noqa: BLE001
-            # CUDA OOM, model exception vs — kullaniciya net mesaj
             msg = str(e).lower()
             if "out of memory" in msg or "cuda" in msg:
-                logger.error("GPU OOM rid-unknown: %s", e)
-                raise HTTPException(status_code=503, detail="GPU bellegi yetersiz, daha kucuk goruntu deneyin")
-            logger.exception("ML analyze hatasi: %s", e)
-            raise HTTPException(status_code=500, detail=f"Analiz hatasi: {e}")
+                logger.error("GPU OOM index=%d: %s", i, e)
+                if len(files) == 1:
+                    raise HTTPException(status_code=503, detail="GPU bellegi yetersiz, daha kucuk goruntu deneyin")
+                per_image.append({
+                    "index": i, "url": url, "status": "failed",
+                    "error": "GPU bellegi yetersiz",
+                    "image": {"url": url}, "parts": [], "summary": {},
+                    "unassigned_damages": [], "multi_part_damages": [],
+                })
+                failed_indices.append(i)
+                continue
+            logger.exception("ML analyze hatasi index=%d: %s", i, e)
+            if len(files) == 1:
+                raise HTTPException(status_code=500, detail=f"Analiz hatasi: {e}")
+            per_image.append({
+                "index": i, "url": url, "status": "failed",
+                "error": f"Analiz hatasi: {e}",
+                "image": {"url": url}, "parts": [], "summary": {},
+                "unassigned_damages": [], "multi_part_damages": [],
+            })
+            failed_indices.append(i)
+            continue
         if isinstance(r, dict):
             img_blk = r.get("image") if isinstance(r.get("image"), dict) else {}
-            # Pipeline'in legacy "<inline>" donmesi durumunda override et.
             if (not img_blk.get("url")) or img_blk.get("url") == "<inline>":
                 img_blk["url"] = url
             r["image"] = img_blk
         results.append(r)
-        # Per-image kart kaydi (frontend "N foto = N sonuc" beklentisi).
         per_image.append({
             "index": i,
             "url": url,
@@ -998,7 +1047,20 @@ async def _process_sync(files: List[UploadFile], auth: AuthContext,
             "multi_part_damages": (r.get("multi_part_damages") if isinstance(r, dict) else []) or [],
         })
 
-    aggregated = aggregate_results(results) if len(results) > 1 else dict(results[0])
+    # En az 1 sonuc yoksa toplu fail; sıralamayı sayfanın bozulmaması için
+    # results bos olsa bile per_image listesi UI'a doner.
+    if not results:
+        raise HTTPException(status_code=500, detail=(
+            f"Hicbir goruntu analiz edilemedi ({len(failed_indices)} adet basarisiz)"
+        ))
+
+    try:
+        aggregated = aggregate_results(results) if len(results) > 1 else dict(results[0])
+    except Exception as e:  # noqa: BLE001
+        logger.exception("aggregate_results crash: %s", e)
+        # Fallback: ilk sonucu ham dondur, per_image kullanici icin yeterli
+        aggregated = dict(results[0])
+        aggregated["_aggregation_error"] = str(e)
     # inspection_id'yi zorla yerlestir
     aggregated["inspection_id"] = inspection_id
     aggregated["images"] = per_image
@@ -1267,7 +1329,8 @@ async def list_inspections(
             iu = r.get("image_urls")
             if isinstance(iu, list) and iu:
                 cand = iu[0]
-                if isinstance(cand, str) and cand and cand != "<inline>":
+                if isinstance(cand, str) and cand and cand != "<inline>" \
+                        and not cand.startswith("local://"):
                     thumb = cand
 
         inspection_id_val = r["id"] if "id" in r else r.get("inspection_id")

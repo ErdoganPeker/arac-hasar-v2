@@ -44,6 +44,9 @@ export function SeverityBadge({
   showDot = false,
   showIcon = true,
 }: Props) {
+  // Guard: backend bazı path'lerde severity dönmeyebilir (Roboflow) — null
+  // veya bilinmeyen değer için render yapma (React.createElement crash önlenir).
+  if (!level || !(level in STYLES)) return null;
   const Icon = ICONS[level];
   return (
     <span
@@ -57,7 +60,7 @@ export function SeverityBadge({
       {showDot && (
         <span className={cn('h-1.5 w-1.5 rounded-full', DOT_COLORS[level])} aria-hidden />
       )}
-      {showIcon && (
+      {showIcon && Icon && (
         <Icon
           className={cn(size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5', ICON_COLORS[level])}
           aria-hidden

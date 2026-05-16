@@ -101,9 +101,12 @@ class Settings(BaseSettings):
     ml_unload_after_inference: bool = False
 
     # ---- S3 storage ----
-    # Render production: AWS S3 ya da Cloudflare R2. Dev: MinIO.
+    # Production: AWS S3 / R2 / B2. Dev: MinIO.
     s3_endpoint: str = "http://minio:9000"
-    s3_public_endpoint: str = "http://localhost:9000"
+    # NOT: production'da MUTLAKA S3_PUBLIC_ENDPOINT env'i set edilmeli;
+    # default localhost'tu — kullanici-yuzlu image URL'leri prod'da kirildi.
+    # Bos string fallback: storage.get_image_url s3_endpoint'i kullanir.
+    s3_public_endpoint: str = ""
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
     s3_bucket: str = "inspections"

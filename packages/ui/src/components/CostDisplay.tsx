@@ -22,8 +22,13 @@ const CONF_COLOR: Record<'high' | 'medium' | 'low', string> = {
 };
 
 export function CostDisplay({ summary, className }: Props) {
-  const [min, max] = summary.total_cost_range_tl;
-  const mid = summary.total_cost_midpoint_tl ?? (min + max) / 2;
+  // Guard: Roboflow / pretrained path total_cost_range_tl döndürmeyebilir;
+  // undefined destructure crash önlenir.
+  const range = Array.isArray(summary?.total_cost_range_tl)
+    ? summary.total_cost_range_tl
+    : [0, 0];
+  const [min, max] = [Number(range[0]) || 0, Number(range[1]) || 0];
+  const mid = summary?.total_cost_midpoint_tl ?? (min + max) / 2;
 
   return (
     <div
