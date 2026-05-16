@@ -64,7 +64,15 @@ if os.environ.get("S3_ACCESS_KEY"):
     kwargs["aws_access_key_id"] = os.environ["S3_ACCESS_KEY"]
     kwargs["aws_secret_access_key"] = os.environ["S3_SECRET_KEY"]
 
-s3 = boto3.client("s3", config=Config(retries={"max_attempts": 5, "mode": "standard"}), **kwargs)
+# Backblaze B2 + Cloudflare R2 require AWS Signature V4 + virtual-hosted-style
+# addressing. Without these flags boto3 falls back to s3v2/path-style which
+# B2 answers with 403 Forbidden on HeadObject even when keys are valid.
+config = Config(
+    retries={"max_attempts": 5, "mode": "standard"},
+    signature_version="s3v4",
+    s3={"addressing_style": "virtual"},
+)
+s3 = boto3.client("s3", config=config, **kwargs)
 os.makedirs(target, exist_ok=True)
 for w in weights:
     dst = os.path.join(target, w)
