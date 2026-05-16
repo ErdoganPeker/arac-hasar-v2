@@ -1,3 +1,15 @@
+---
+title: Hasari API
+emoji: 🚗
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+license: apache-2.0
+short_description: AI-powered vehicle damage detection (FastAPI + YOLO11)
+---
+
 # Hasarİ — Araç Hasar Tespiti v2
 
 > AI-powered, part-centric vehicle damage detection and cost estimation — web + desktop + mobile + backend + ML, all in one monorepo.
