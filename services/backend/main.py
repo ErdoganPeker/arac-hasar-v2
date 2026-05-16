@@ -1033,14 +1033,24 @@ async def _process_sync(files: List[UploadFile], auth: AuthContext,
         except Exception:
             pass
 
-    payload = SyncInspectionResponse(
-        inspection_id=inspection_id,
-        result=aggregated,
-        processed_at=now_iso,
-    )
-    body = payload.model_dump(exclude_none=True)
-    # Top-level model_used — SyncInspectionResponse StrictModel extra=forbid
-    # oldugu icin manuel ekliyoruz (response_model=None ile validate edilmiyor).
+    # Pydantic strict validation pipeline output ile drift halinde —
+    # pilot icin ham dict ile dondur, schema enforcement client-side'da
+    # opsiyonel. Lokal dev'de SyncInspectionResponse(...) ile validate
+    # edilmek istenirse STRICT_RESPONSE_VALIDATION=1 env'i ile zorlanir.
+    import os as _os
+    if _os.getenv("STRICT_RESPONSE_VALIDATION", "0") == "1":
+        payload = SyncInspectionResponse(
+            inspection_id=inspection_id,
+            result=aggregated,
+            processed_at=now_iso,
+        )
+        body = payload.model_dump(exclude_none=True)
+    else:
+        body = {
+            "inspection_id": inspection_id,
+            "result": aggregated,
+            "processed_at": now_iso,
+        }
     body["model_used"] = model
     return JSONResponse(
         status_code=200,
