@@ -850,7 +850,12 @@ async def create_inspection(
     if not available:
         raise HTTPException(status_code=400, detail=reason)
 
-    if mode == "sync":
+    # FORCE_SYNC_INFERENCE=1 → async mode bile inline calistir. HF Spaces
+    # gibi worker-less deploy'larda Celery dispatch isimsiz takiliyordu.
+    import os as _os
+    _force_sync = _os.getenv("FORCE_SYNC_INFERENCE", "0") == "1"
+
+    if mode == "sync" or _force_sync:
         if len(files) > settings.max_images_sync:
             raise HTTPException(
                 status_code=400,
@@ -858,7 +863,7 @@ async def create_inspection(
             )
         return await _process_sync(files, auth, model=model_id)
 
-    # Async
+    # Async (sadece gercek worker varsa)
     if len(files) > settings.max_images_async:
         raise HTTPException(
             status_code=400,
@@ -896,23 +901,41 @@ async def _enqueue_async(files: List[UploadFile], auth: AuthContext,
         logger.debug("model_versions kaydedilemedi (legacy schema?): %s", e)
 
     try:
-        # Geriye uyumlu cagri: model param celery task'a kwargs olarak gecsin
+        # apply_async(retry=False) — Upstash hiccup'unda 4s broker retry
+        # request thread'i blokuyordu; net basarisizlik daha iyi.
         try:
-            run_inspection_task.delay(inspection_id, image_urls, model=model)
+            run_inspection_task.apply_async(
+                args=[inspection_id, image_urls],
+                kwargs={"model": model},
+                retry=False,
+            )
         except TypeError:
-            # Eski worker imza: model param yok — sessiz fallback (custom kullanir).
-            # Worker tarafindan inspection.model_versions.requested_model
-            # okunarak compat saglanabilir; bu MVP'de log'da kalir.
             logger.warning(
                 "Worker run_inspection_task 'model' kwarg kabul etmiyor — "
                 "async pipeline 'custom' modeliyle calisacak (inspection=%s)",
                 inspection_id,
             )
-            run_inspection_task.delay(inspection_id, image_urls)
+            run_inspection_task.apply_async(
+                args=[inspection_id, image_urls],
+                retry=False,
+            )
     except Exception as e:
-        logger.error(f"Celery enqueue basarisiz: {e}")
-        update_inspection(inspection_id, status="failed", error="Kuyruk hizmeti kapali")
-        raise HTTPException(status_code=503, detail="Is kuyrugu su an kullanilamiyor")
+        logger.error("Celery enqueue basarisiz: %s", e)
+        try:
+            update_inspection(
+                inspection_id,
+                status="failed",
+                error=f"Kuyruk hizmeti kapali: {e.__class__.__name__}",
+            )
+        except Exception:
+            logger.exception("status=failed yazilamadi (cascading)")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Is kuyrugu su an kullanilamiyor. Lutfen 'Aninda isle' "
+                "(sync) modunu kullanin."
+            ),
+        )
 
     # Tahmini bekleme suresi — frontend polling backoff'u icin yararli.
     # Kuyrukta onumuzde olanlari sayariz (status IN queued/processing).
@@ -1055,11 +1078,17 @@ async def _process_sync(files: List[UploadFile], auth: AuthContext,
         ))
 
     try:
-        aggregated = aggregate_results(results) if len(results) > 1 else dict(results[0])
+        # NOT: N==1 icin de aggregate_results cagir — single-image shortcut
+        # `<inline>` URL sanitization adimini bypass ediyordu (Wave 9 regression).
+        aggregated = aggregate_results(results)
     except Exception as e:  # noqa: BLE001
         logger.exception("aggregate_results crash: %s", e)
-        # Fallback: ilk sonucu ham dondur, per_image kullanici icin yeterli
         aggregated = dict(results[0])
+        # Manuel sanitize: <inline> -> real URL
+        img_blk = aggregated.get("image") if isinstance(aggregated.get("image"), dict) else {}
+        if img_blk.get("url") == "<inline>":
+            img_blk["url"] = image_urls[0] if image_urls else None
+            aggregated["image"] = img_blk
         aggregated["_aggregation_error"] = str(e)
     # inspection_id'yi zorla yerlestir
     aggregated["inspection_id"] = inspection_id

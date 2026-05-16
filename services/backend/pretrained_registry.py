@@ -111,6 +111,11 @@ class PretrainedEntry:
         if self.source == "roboflow" and self.roboflow:
             import os
             return bool(os.getenv("ROBOFLOW_API_KEY") or os.getenv("ROBOFLOW_KEY"))
+        # Ultralytics: weight yoksa runtime'da CDN'den auto-download yapar.
+        # Optimist davran — gercek fail inference'ta yakalanir, kullanici
+        # 400 ile bilerek engellenmek yerine inference'i denesin.
+        if self.source == "ultralytics":
+            return True
         return self.resolved_path().exists()
 
     def to_public_dict(self) -> Dict[str, Any]:

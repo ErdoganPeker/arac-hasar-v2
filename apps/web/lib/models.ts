@@ -34,23 +34,40 @@ const STORAGE_KEY = 'selected_model';
  * entry of `kind: 'custom'` is the documented MVP default and gets
  * `recommended: true` so the UI badges it.
  */
+// IMPORTANT: id'ler backend kontratiyla esleşmek zorunda. Backend
+// services/backend/ml_service.py DEFAULT_MODEL_ID="custom" ve registry
+// "pretrained_ultralytics_yolo11m" / "pretrained_roboflow_cardd" id'lerini
+// taniyor. Yanlis id 400 "Bilinmeyen model" donduruyor → frontend
+// "sunucu hatasi" gosteriyor.
 export const FALLBACK_MODELS: ModelOption[] = [
   {
-    id: 'custom-yolo26-seg',
+    id: 'custom',
     label: 'Kendi Modelim',
     kind: 'custom',
-    description: 'YOLO26-seg · TR araç hasar fine-tune',
+    description: 'YOLO11-seg · Bizim 3-model pipeline (damage + parts + severity)',
     recommended: true,
   },
   {
-    id: 'pretrained-yolo26',
-    label: 'Pre-trained',
+    id: 'pretrained_ultralytics_yolo11m',
+    label: 'Pre-trained: Ultralytics',
     kind: 'pretrained',
-    description: 'YOLO26 · COCO weights',
+    description: 'YOLO11m-seg · COCO 80-class baseline',
+  },
+  {
+    id: 'pretrained_roboflow_cardd',
+    label: 'Pre-trained: Roboflow Scratch/Dent',
+    kind: 'pretrained',
+    description: 'Roboflow Hosted Inference — sadece bbox tespiti',
   },
 ];
 
 export const DEFAULT_MODEL_ID = FALLBACK_MODELS[0]!.id;
+
+// Eski sürümlerde kaydedilmiş stale id'leri yeni kontratla map et.
+const LEGACY_ID_MIGRATIONS: Record<string, string> = {
+  'custom-yolo26-seg': 'custom',
+  'pretrained-yolo26': 'pretrained_ultralytics_yolo11m',
+};
 
 function isBrowser(): boolean {
   return typeof window !== 'undefined';
@@ -59,7 +76,15 @@ function isBrowser(): boolean {
 export function getSelectedModelId(): string {
   if (!isBrowser()) return DEFAULT_MODEL_ID;
   try {
-    return localStorage.getItem(STORAGE_KEY) || DEFAULT_MODEL_ID;
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return DEFAULT_MODEL_ID;
+    // Migration: eski id varsa yeniyle güncelle
+    if (LEGACY_ID_MIGRATIONS[stored]) {
+      const newId = LEGACY_ID_MIGRATIONS[stored];
+      localStorage.setItem(STORAGE_KEY, newId);
+      return newId;
+    }
+    return stored;
   } catch {
     return DEFAULT_MODEL_ID;
   }

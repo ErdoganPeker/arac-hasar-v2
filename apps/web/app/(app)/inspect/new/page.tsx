@@ -130,7 +130,10 @@ export default function NewInspectionPage() {
       } else if (info.kind === 'rateLimited') {
         message = tErrHttp('429');
       } else if (info.kind === 'server') {
-        message = tErrHttp('500');
+        // Backend bazi 5xx'lerde de aciklayici detail dönüyor (örn. "ML
+        // servisi yok", "Kuyruk hizmeti kapali"). Generic "sunucu hatasi"
+        // string'i kullaniciyi yanlis yönlendiriyordu — varsa detail'i göster.
+        message = info.detail || tErrHttp('500');
       } else {
         message = info.detail ?? t('uploadFailed');
       }

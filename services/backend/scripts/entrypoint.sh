@@ -61,6 +61,30 @@ fetch_models() {
             mv "${dst}.tmp" "${dst}"
         done
         log "All weights fetched from Hugging Face."
+        # ---- Pretrained Ultralytics COCO weights (Ultralytics CDN, public) ----
+        # PRETRAINED_DIR'a yolo11m-seg.pt indir. is_available() file-exists
+        # checki bunu bulamayinca pretrained_ultralytics_yolo11m 400 doner.
+        local pre_dir="${PRETRAINED_DIR:-/app/pretrained}"
+        local ultra_base="${ULTRALYTICS_BASE:-https://github.com/ultralytics/assets/releases/download/v8.3.0}"
+        local ultra_weights=("yolo11m-seg.pt")
+        mkdir -p "${pre_dir}" || true
+        for w in "${ultra_weights[@]}"; do
+            local dst="${pre_dir}/${w}"
+            if [[ -f "${dst}" ]]; then
+                log "  pretrained ${w} cached, skip."
+                continue
+            fi
+            log "  downloading pretrained ${ultra_base}/${w}"
+            if curl --fail --silent --show-error --location \
+                    --retry 3 --retry-delay 3 --max-time 300 \
+                    --output "${dst}.tmp" "${ultra_base}/${w}"; then
+                mv "${dst}.tmp" "${dst}"
+                log "  pretrained ${w} OK"
+            else
+                log "WARN: pretrained ${w} fetch fail; UI will show 'unavailable' but core custom model unaffected"
+                rm -f "${dst}.tmp" || true
+            fi
+        done
         return 0
     fi
 
