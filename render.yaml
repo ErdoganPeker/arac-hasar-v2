@@ -44,8 +44,11 @@ services:
     repo: https://github.com/erdoganpeker/arac-hasar-v2
     branch: main
     rootDir: .
-    dockerfilePath: ./services/backend/Dockerfile.embedded
-    dockerContext: .
+    # Dockerfile.embedded baked the 137 MB CarDD bundle into the image
+    # (too big for Render free 10 GB image + slow rebuilds). We use the
+    # slim Dockerfile and fetch weights from B2 at boot via entrypoint.sh.
+    dockerfilePath: ./services/backend/Dockerfile
+    dockerContext: ./services/backend
     plan: free                       # 512 MB RAM, sleeps after 15 min idle
     region: frankfurt                # closest free region to TR
     autoDeploy: false                # gated by GH Actions deploy hook
@@ -62,10 +65,14 @@ services:
         value: cpu
       - key: MODEL_DIR
         value: /app/models
-      - key: MODEL_VARIANT
-        value: small                 # use yolo11s-seg (embedded ~20 MB)
+      # Boot-time model fetch from B2: entrypoint.sh downloads .pt files
+      # from s3://$MODEL_S3_BUCKET/$MODEL_S3_PREFIX/ into MODEL_DIR.
       - key: SKIP_MODEL_FETCH
-        value: "1"                   # weights are baked in; do not S3-pull
+        value: "0"
+      - key: MODEL_S3_BUCKET
+        value: hasari-inspections
+      - key: MODEL_S3_PREFIX
+        value: models                # B2 path: hasari-inspections/models/{damage,parts,severity}_best.pt
       - key: FORCE_SYNC_INFERENCE
         value: "1"                   # free tier has no worker -> run inline
       - key: UVICORN_WORKERS
