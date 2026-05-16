@@ -31,8 +31,5 @@
   ],
   "redirects": [
     { "source": "/home", "destination": "/", "permanent": true }
-  ],
-  "_comment_env": "Environment variables MUST be set in Vercel dashboard (Project Settings -> Environment Variables). Required: NEXT_PUBLIC_API_URL=https://hasari-api.onrender.com  Optional: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, NEXT_PUBLIC_SENTRY_DSN. NEVER commit secrets to this file.",
-  "_comment_rootdir": "In Vercel UI set Root Directory = apps/web so this vercel.json (placed at repo root) is picked up via project import; alternatively move this file to apps/web/vercel.json.",
-  "_comment_region": "cdg1 = Paris (Europe-West); closest free region to Turkey. Hobby plan allows only 1 region."
+  ]
 }
