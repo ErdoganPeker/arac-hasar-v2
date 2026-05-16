@@ -49,7 +49,7 @@ services:
     # slim Dockerfile and fetch weights from B2 at boot via entrypoint.sh.
     dockerfilePath: ./services/backend/Dockerfile
     dockerContext: ./services/backend
-    plan: free                       # 512 MB RAM, sleeps after 15 min idle
+    plan: starter                    # 2 GB RAM, no sleep; required for ML pipeline (free 512 MB OOMs)
     region: frankfurt                # closest free region to TR
     autoDeploy: false                # gated by GH Actions deploy hook
     healthCheckPath: /health
