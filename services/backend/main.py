@@ -474,18 +474,24 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.on_event("startup")
 async def on_startup():
-    logger.info("Sunucu baslatildi — DB ve ML pipeline yukleniyor")
+    logger.info("Sunucu baslatildi — startup (lazy ML mode)")
+    # DB init: idempotent CREATE/ALTER; connection acilir/kapanir, RAM tutmaz.
+    # Async engine (database.py) ise lazy: ilk get_db() cagrisinda baglanir.
     try:
         init_db()
     except Exception as e:
         logger.warning(f"DB init basarisiz, mock mode olabilir: {e}")
+    # ML warmup: 512MB Render free icin default OFF (config.ml_warmup_on_startup).
+    # Ilk /api/v1/inspect cagrisinda ml_service.MLPipeline.analyze() lazy
+    # warm_up() tetikleyecek (~5-10sn cold start; sonraki istekler hizli).
+    # Eager warmup istenirse env: ML_WARMUP_ON_STARTUP=1 (dev/GPU host).
     if settings.ml_warmup_on_startup:
         try:
             ml_pipeline.warm_up()
         except Exception as e:
             logger.warning(f"ML warm-up basarisiz, lazy mode: {e}")
     else:
-        logger.info("ML warmup atlandi (ML_WARMUP_ON_STARTUP=False)")
+        logger.info("ML warmup atlandi (ml_warmup_on_startup=False, lazy)")
     # S3 bucket bootstrap — yok ise olustur (dev MinIO icin yararli)
     try:
         from storage import ensure_bucket
@@ -494,11 +500,13 @@ async def on_startup():
         logger.warning(f"S3 bucket bootstrap atlandi: {e}")
     if settings.dev_mode:
         logger.warning("DEV MODE: API_KEYS bos ve environment=development")
-    # OpenAPI JSON'i diske yaz — diger ajanlar/clients tuketsin
-    try:
-        _export_openapi()
-    except Exception as e:
-        logger.warning(f"OpenAPI export basarisiz: {e}")
+    # OpenAPI JSON'i diske yaz — sadece development'ta (production'da CI yapsin,
+    # boot'ta openapi() schema build'i ~40MB heap allocation pinler).
+    if not settings.is_production:
+        try:
+            _export_openapi()
+        except Exception as e:
+            logger.warning(f"OpenAPI export basarisiz: {e}")
     logger.info("Hazir.")
 
 
@@ -636,6 +644,55 @@ async def list_models(auth: AuthContext = Depends(require_api_key)):
     )
 
 
+# ---------------- Admin: ML lifecycle ----------------
+
+@app.post(
+    "/api/v1/admin/ml/unload",
+    tags=["inspect"],
+    summary="ML pipeline bellegi serbest birak (admin only)",
+    responses={
+        200: {
+            "description": "Unload tamamlandi",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "unloaded": True,
+                        "before_rss_mb": 1480.0,
+                        "after_rss_mb": 410.5,
+                        "freed_mb": 1069.5,
+                        "rss_mb": 410.5,
+                    }
+                }
+            },
+        },
+        401: {"model": ApiError},
+        403: {"model": ApiError, "description": "Admin yetkisi gerekli"},
+    },
+)
+async def admin_ml_unload(auth: AuthContext = Depends(require_api_key)):
+    """ML pipeline'i bellekten dusur — demo/pilot sonrasi RAM toparlama.
+
+    Render free 512MB profili icin: bir inceleme batch'i bittikten sonra
+    bu endpoint cagrildiginda pipeline + model agirliklari unload edilir,
+    RSS baseline'a (~150MB) doner. Sonraki /inspect cagrisi cold-load yapar
+    (~5-10sn extra latency).
+
+    Yetki: role=admin (dev_mode bypass haric).
+    """
+    if not (getattr(auth, "is_dev", False) or (getattr(auth, "role", "user") == "admin")):
+        raise HTTPException(status_code=403, detail="Admin yetkisi gerekli")
+    try:
+        # Local import — circular avoidance + boot-time RAM
+        from ml_service import _rss_mb as rss_mb  # noqa: WPS433
+        stats = ml_pipeline.unload()
+        stats["rss_mb"] = rss_mb()
+        logger.info("admin ml unload: %s", stats)
+        return JSONResponse(status_code=200, content=stats)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("admin ml unload hatasi: %s", e)
+        raise HTTPException(status_code=500, detail=f"Unload basarisiz: {e}")
+
+
 # ---------------- Yardimcilar ----------------
 
 def _sniff_image_format(content: bytes) -> Optional[str]:
@@ -703,7 +760,17 @@ async def _store_upload(file: UploadFile, inspection_id: str, index: int) -> tup
     _validate_image_file(file, content, index)
     safe_name = (file.filename or f"image_{index}").replace("/", "_").replace("\\", "_")
     key = f"inspections/{inspection_id}/img_{index}_{safe_name}"
-    url = await upload_image(content, key, content_type=file.content_type)
+    # Pilot/HF Spaces fallback: S3 provider (B2) yazma fail olursa ML sonucu
+    # yine dondur; image kaydetme zorunlu degil. Visualization endpoint'i
+    # bu durumda image bulamaz ama core hasar tespiti calismaya devam eder.
+    if os.getenv("STORAGE_OPTIONAL", "0") == "1":
+        try:
+            url = await upload_image(content, key, content_type=file.content_type)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("S3 upload atlandi (STORAGE_OPTIONAL=1) key=%s err=%s", key, exc)
+            url = f"local://skipped/{key}"
+    else:
+        url = await upload_image(content, key, content_type=file.content_type)
     return content, url
 
 
