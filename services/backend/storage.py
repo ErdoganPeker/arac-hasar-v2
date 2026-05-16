@@ -84,11 +84,18 @@ async def upload_image(
 
     boto3 senkron — asyncio.to_thread ile event-loop'u bloke etmiyoruz.
     """
-    # B2/MinIO uyumlulugu: boto3 1.36+ default'unda streaming chunked PUT
-    # ("Seed signature" / "IncompleteBody" hatalari). ContentLength + BytesIO
-    # ile explicit length veriliyor, payload tek seferde imzalaniyor.
+    # B2/MinIO uyumlulugu: boto3 1.36+ default'unda aws-chunked transfer
+    # encoding kullaniyor ("Seed signature is invalid" / "IncompleteBody"
+    # hatalari B2 tarafindan donuyor). ContentMD5 verilince boto3 chunked
+    # streaming yerine single-shot signed PUT'a dusuyor, B2 mutlu oluyor.
+    import base64 as _b64
+    import hashlib as _hashlib
     import io as _io
-    extra_args: dict = {"ContentLength": len(content)}
+    md5_b64 = _b64.b64encode(_hashlib.md5(content).digest()).decode()
+    extra_args: dict = {
+        "ContentLength": len(content),
+        "ContentMD5": md5_b64,
+    }
     if content_type:
         extra_args["ContentType"] = content_type
 
