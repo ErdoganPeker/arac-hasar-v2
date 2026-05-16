@@ -1,0 +1,10 @@
+# Scripts klasoru icin minimum bagimliliklar.
+# NOT: ML training/inference bagimliliklari (torch, ultralytics, opencv vb.)
+# burada DEGIL — onlar services/ml/setup.sh veya backend requirements'a ait.
+huggingface_hub>=0.24
+datasets>=2.19
+tqdm>=4.66
+roboflow>=1.1.40
+pyyaml>=6.0
+requests>=2.32
+pillow>=10.0

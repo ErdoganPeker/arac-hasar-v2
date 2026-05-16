@@ -1,0 +1,1985 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Arac Hasar Tespit API",
+    "description": "Arac hasar tespiti, parca segmentasyonu, siddet ve maliyet tahmini. Web (Next.js), Mobile (Expo/React Native) ve Desktop (Tauri) icin ortak REST + WebSocket API.",
+    "contact": {
+      "name": "arac-hasar-v2",
+      "email": "weblineet@gmail.com"
+    },
+    "version": "0.3.0"
+  },
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Yeni kullanici kaydi",
+        "operationId": "register_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Email + parola ile giris",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Oturum acmis kullanici bilgileri",
+        "operationId": "me_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPublic"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Refresh token ile yeni access + refresh cifti al",
+        "operationId": "refresh_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Saglik kontrolu",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Versiyon bilgisi",
+        "operationId": "version_info_api_v1_version_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models": {
+      "get": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Kullanilabilir modeller (custom + pretrained)",
+        "description": "Frontend model-selector dropdown'i icin kaynak listesi.\n\nAuth gerektirir (API key veya bearer). Custom + pre-trained registry'den\nderlenmis tum kaynaklar donulur. `is_custom=True` olan tek bir kayit hep\nbulunur — fallback varsayilandir.",
+        "operationId": "list_models_api_v1_models_get",
+        "responses": {
+          "200": {
+            "description": "Model listesi",
+            "content": {
+              "application/json": {
+                "schema": {},
+                "example": {
+                  "models": [
+                    {
+                      "id": "custom",
+                      "name": "Kendi Modellerim",
+                      "description": "CarDD finetune pipeline (damage+parts+severity).",
+                      "source": "custom",
+                      "classes_count": 0,
+                      "license": "proprietary",
+                      "is_custom": true,
+                      "available": true,
+                      "loaded": true,
+                      "kind": "custom",
+                      "entries": []
+                    },
+                    {
+                      "id": "pretrained_roboflow_cardd",
+                      "name": "Pre-trained: Roboflow CarDD Pipeline",
+                      "description": "Roboflow Universe public modelleri.",
+                      "source": "roboflow",
+                      "classes_count": 15,
+                      "license": "CC-BY-4.0",
+                      "is_custom": false,
+                      "available": true,
+                      "loaded": false,
+                      "kind": "pretrained",
+                      "entries": [
+                        {
+                          "id": "roboflow_cardd_scratch_dent",
+                          "name": "Roboflow Car Scratch & Dent",
+                          "license": "CC-BY-4.0",
+                          "classes": [
+                            "scratch",
+                            "dent"
+                          ],
+                          "source": "roboflow"
+                        }
+                      ]
+                    }
+                  ],
+                  "default": "custom"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWT": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ]
+      }
+    },
+    "/api/v1/inspect": {
+      "post": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Coklu goruntu hasar tespiti",
+        "description": "Cok goruntulu hasar tespiti.\n\n- **mode=sync**: Max 5 goruntu, sonuc hemen doner.\n- **mode=async**: Max 20 goruntu, kuyruga alinir; status WS veya GET ile takip edilir.\n- **model**: hangi pipeline kullanilacak. Frontend toggle (Pre-trained / Kendi Modellerim).\n  Gecersiz id -> 400 'Bilinmeyen model'.",
+        "operationId": "create_inspection_api_v1_inspect_post",
+        "security": [
+          {
+            "JWT": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "sync",
+                "async"
+              ],
+              "type": "string",
+              "description": "Calisma modu",
+              "default": "async",
+              "title": "Mode"
+            },
+            "description": "Calisma modu"
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Model kaynak id'si — 'custom' (default, kendi eğitilmiş modellerimiz) veya pre-trained: 'pretrained_ultralytics_yolo11m', 'pretrained_roboflow_cardd', 'pretrained_hybrid'. Tum liste: GET /api/v1/models",
+              "default": "custom",
+              "title": "Model"
+            },
+            "description": "Model kaynak id'si — 'custom' (default, kendi eğitilmiş modellerimiz) veya pre-trained: 'pretrained_ultralytics_yolo11m', 'pretrained_roboflow_cardd', 'pretrained_hybrid'. Tum liste: GET /api/v1/models"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_inspection_api_v1_inspect_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sync tamamlandi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncInspectionResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Async kuyruga alindi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectionCreateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "429": {
+            "description": "Rate limit asildi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Inceleme listesi (sayfalanmis)",
+        "operationId": "list_inspections_api_v1_inspect_get",
+        "security": [
+          {
+            "JWT": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectionListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inspect/sync": {
+      "post": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Hizli senkron inceleme (tek veya az sayida goruntu)",
+        "description": "Senkron inceleme — latency hassas.\n\nFrontend uyumu icin hem `file` (tekil — mobile eski path) hem `files` (cogul —\nweb/desktop) field adlarini kabul eder. En az 1 dosya gerekli, max\n`max_images_sync`.",
+        "operationId": "sync_single_api_v1_inspect_sync_post",
+        "security": [
+          {
+            "JWT": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Model kaynak id'si (GET /api/v1/models)",
+              "default": "custom",
+              "title": "Model"
+            },
+            "description": "Model kaynak id'si (GET /api/v1/models)"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_sync_single_api_v1_inspect_sync_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sync tamamlandi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncInspectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inspect/{inspection_id}": {
+      "get": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Inceleme durumu + sonucu",
+        "operationId": "get_inspection_api_v1_inspect__inspection_id__get",
+        "security": [
+          {
+            "JWT": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "inspection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Inspection Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectionStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Inceleme sil",
+        "operationId": "delete_inspection_endpoint_api_v1_inspect__inspection_id__delete",
+        "security": [
+          {
+            "JWT": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "inspection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Inspection Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inspect/{inspection_id}/visualization/{viz_type}": {
+      "get": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Annotated/parts/damages PNG (presigned URL'e redirect)",
+        "operationId": "get_visualization_api_v1_inspect__inspection_id__visualization__viz_type__get",
+        "security": [
+          {
+            "JWT": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "inspection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Inspection Id"
+            }
+          },
+          {
+            "name": "viz_type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "annotated",
+                "parts",
+                "damages"
+              ],
+              "type": "string",
+              "title": "Viz Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "302": {
+            "description": "S3 presigned URL'e yonlendir"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Inspection henuz tamamlanmamis",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ApiError"
+      },
+      "Body_create_inspection_api_v1_inspect_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files",
+            "description": "1+ goruntu (jpg/png)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_create_inspection_api_v1_inspect_post"
+      },
+      "Body_sync_single_api_v1_inspect_sync_post": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File",
+            "description": "Tek goruntu (eski alan adi)"
+          },
+          "files": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "contentMediaType": "application/octet-stream"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files",
+            "description": "1+ goruntu (web)"
+          }
+        },
+        "type": "object",
+        "title": "Body_sync_single_api_v1_inspect_sync_post"
+      },
+      "CostEstimate": {
+        "properties": {
+          "min_tl": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Tl"
+          },
+          "max_tl": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Max Tl"
+          },
+          "midpoint_tl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Midpoint Tl"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidence"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "min_tl",
+          "max_tl",
+          "confidence",
+          "source"
+        ],
+        "title": "CostEstimate"
+      },
+      "Damage": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "dent",
+              "scratch",
+              "crack",
+              "glass_shatter",
+              "lamp_broken",
+              "tire_flat"
+            ],
+            "title": "Type"
+          },
+          "type_tr": {
+            "type": "string",
+            "title": "Type Tr"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/SeverityResult"
+          },
+          "bbox": {
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Bbox"
+          },
+          "polygon_normalized": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Polygon Normalized",
+            "default": []
+          },
+          "area_ratio": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Area Ratio"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/CostEstimate"
+          },
+          "is_multi_part": {
+            "type": "boolean",
+            "title": "Is Multi Part",
+            "default": false
+          },
+          "is_low_confidence_match": {
+            "type": "boolean",
+            "title": "Is Low Confidence Match",
+            "default": false
+          },
+          "affected_parts": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affected Parts"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "type_tr",
+          "confidence",
+          "severity",
+          "bbox",
+          "area_ratio",
+          "cost"
+        ],
+        "title": "Damage",
+        "description": "Tek bir hasar kaydi — packages/types/src/damage.ts::Damage ile ayni."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded",
+              "down"
+            ],
+            "title": "Status"
+          },
+          "ml_loaded": {
+            "type": "boolean",
+            "title": "Ml Loaded"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "ml_loaded",
+          "timestamp"
+        ],
+        "title": "HealthResponse"
+      },
+      "Inspection": {
+        "properties": {
+          "inspection_id": {
+            "type": "string",
+            "title": "Inspection Id"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp"
+          },
+          "image": {
+            "$ref": "#/components/schemas/InspectionImage"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array",
+            "title": "Parts",
+            "default": []
+          },
+          "summary": {
+            "$ref": "#/components/schemas/InspectionSummary"
+          },
+          "multi_part_damages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Damage"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multi Part Damages"
+          },
+          "unassigned_damages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Damage"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unassigned Damages"
+          },
+          "visualization_urls": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VisualizationUrls"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "inspection_id",
+          "timestamp",
+          "image",
+          "summary"
+        ],
+        "title": "Inspection",
+        "description": "Bir incelemenin ana sonuc DTO'su."
+      },
+      "InspectionCreateResponse": {
+        "properties": {
+          "inspection_id": {
+            "type": "string",
+            "title": "Inspection Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "status_url": {
+            "type": "string",
+            "title": "Status Url"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "estimated_completion_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Completion Seconds",
+            "default": 30
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "inspection_id",
+          "status",
+          "status_url",
+          "created_at"
+        ],
+        "title": "InspectionCreateResponse"
+      },
+      "InspectionImage": {
+        "properties": {
+          "width": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Height"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hash"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "width",
+          "height"
+        ],
+        "title": "InspectionImage"
+      },
+      "InspectionListItem": {
+        "properties": {
+          "inspection_id": {
+            "type": "string",
+            "title": "Inspection Id"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "damage_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Damage Count"
+          },
+          "total_cost_midpoint_tl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost Midpoint Tl"
+          },
+          "thumbnail_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "inspection_id",
+          "created_at",
+          "status",
+          "damage_count"
+        ],
+        "title": "InspectionListItem"
+      },
+      "InspectionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InspectionListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Page Size"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "InspectionListResponse"
+      },
+      "InspectionStatusResponse": {
+        "properties": {
+          "inspection_id": {
+            "type": "string",
+            "title": "Inspection Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Inspection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "inspection_id",
+          "status",
+          "created_at"
+        ],
+        "title": "InspectionStatusResponse"
+      },
+      "InspectionSummary": {
+        "properties": {
+          "total_parts_inspected": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Parts Inspected"
+          },
+          "damaged_parts_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Damaged Parts Count"
+          },
+          "clean_parts_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Clean Parts Count"
+          },
+          "total_damage_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Damage Count"
+          },
+          "unknown_part_damages_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unknown Part Damages Count"
+          },
+          "multi_part_damages_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Multi Part Damages Count"
+          },
+          "most_severe_level": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "hafif",
+                  "orta",
+                  "agir"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Most Severe Level"
+          },
+          "most_severe_level_tr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Most Severe Level Tr"
+          },
+          "total_damage_area_ratio": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Total Damage Area Ratio"
+          },
+          "total_cost_range_tl": {
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Total Cost Range Tl",
+            "default": [
+              0.0,
+              0.0
+            ]
+          },
+          "total_cost_midpoint_tl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost Midpoint Tl"
+          },
+          "cost_confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Cost Confidence",
+            "default": "low"
+          },
+          "repair_recommendation": {
+            "type": "string",
+            "enum": [
+              "kucuk_tamir",
+              "tamir_boya",
+              "parca_degisimi",
+              "agir_hasar_pert_degerlendirme",
+              "hasar_yok"
+            ],
+            "title": "Repair Recommendation",
+            "default": "hasar_yok"
+          },
+          "repair_recommendation_tr": {
+            "type": "string",
+            "title": "Repair Recommendation Tr",
+            "default": "Hasar tespit edilmedi"
+          },
+          "estimated_repair_days": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Estimated Repair Days",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total_parts_inspected",
+          "damaged_parts_count",
+          "clean_parts_count",
+          "total_damage_count",
+          "unknown_part_damages_count",
+          "multi_part_damages_count",
+          "total_damage_area_ratio"
+        ],
+        "title": "InspectionSummary"
+      },
+      "Part": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "name_tr": {
+            "type": "string",
+            "title": "Name Tr"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "clean",
+              "minor_damage",
+              "moderate_damage",
+              "severe_damage"
+            ],
+            "title": "Status"
+          },
+          "damage_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Damage Count"
+          },
+          "polygon_normalized": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Polygon Normalized",
+            "default": []
+          },
+          "bbox": {
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Bbox"
+          },
+          "damages": {
+            "items": {
+              "$ref": "#/components/schemas/Damage"
+            },
+            "type": "array",
+            "title": "Damages",
+            "default": []
+          },
+          "part_cost_min_tl": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Part Cost Min Tl",
+            "default": 0.0
+          },
+          "part_cost_max_tl": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Part Cost Max Tl",
+            "default": 0.0
+          },
+          "cost_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Note"
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "name",
+          "name_tr",
+          "confidence",
+          "status",
+          "damage_count",
+          "bbox"
+        ],
+        "title": "Part",
+        "description": "Parca-merkezli kayit — packages/types/src/part.ts::Part ile ayni."
+      },
+      "RefreshTokenRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "minLength": 10,
+            "title": "Refresh Token"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshTokenRequest"
+      },
+      "SeverityResult": {
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "hafif",
+              "orta",
+              "agir"
+            ],
+            "title": "Level"
+          },
+          "level_tr": {
+            "type": "string",
+            "title": "Level Tr"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "rule",
+              "rule_based",
+              "cnn",
+              "ensemble",
+              "ensemble_resolved"
+            ],
+            "title": "Method"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "level",
+          "level_tr",
+          "confidence",
+          "method"
+        ],
+        "title": "SeverityResult"
+      },
+      "SyncInspectionResponse": {
+        "properties": {
+          "inspection_id": {
+            "type": "string",
+            "title": "Inspection Id"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Inspection"
+          },
+          "processed_at": {
+            "type": "string",
+            "title": "Processed At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "inspection_id",
+          "result",
+          "processed_at"
+        ],
+        "title": "SyncInspectionResponse"
+      },
+      "TokenPair": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          },
+          "token_type": {
+            "type": "string",
+            "const": "bearer",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "expires_in"
+        ],
+        "title": "TokenPair"
+      },
+      "UserLoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "UserLoginRequest"
+      },
+      "UserPublic": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "admin"
+            ],
+            "title": "Role",
+            "default": "user"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "created_at"
+        ],
+        "title": "UserPublic",
+        "description": "Kullaniciya geri donen / /auth/me icin guvenli (PII'siz hash icermez) user kaydi."
+      },
+      "UserRegisterRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "UserRegisterRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VersionResponse": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "git_sha": {
+            "type": "string",
+            "title": "Git Sha"
+          },
+          "build_time": {
+            "type": "string",
+            "title": "Build Time"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "git_sha",
+          "build_time",
+          "environment"
+        ],
+        "title": "VersionResponse"
+      },
+      "VisualizationUrls": {
+        "properties": {
+          "annotated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotated"
+          },
+          "parts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parts"
+          },
+          "damages": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Damages"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "VisualizationUrls"
+      }
+    },
+    "securitySchemes": {
+      "JWT": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Saglik ve versiyon"
+    },
+    {
+      "name": "auth",
+      "description": "Kimlik dogrulama / kullanici"
+    },
+    {
+      "name": "inspect",
+      "description": "Hasar inceleme islemleri"
+    },
+    {
+      "name": "stream",
+      "description": "Realtime WebSocket"
+    }
+  ]
+}

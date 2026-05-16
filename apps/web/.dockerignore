@@ -1,0 +1,53 @@
+# Dependencies (re-installed inside image)
+**/node_modules
+**/.pnpm-store
+
+# Build output
+**/.next
+**/dist
+**/build
+**/out
+
+# VCS / IDE
+.git
+.gitignore
+.vscode
+.idea
+**/*.swp
+
+# Env / secrets
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Logs
+**/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Docs / misc
+**/*.md
+**/README*
+LICENSE
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Coverage / test artifacts
+**/coverage
+**/.nyc_output
+**/.turbo
+**/.cache
+
+# Native / desktop / mobile (web image doesn't need them)
+apps/desktop
+apps/mobile
+services
+tools
+scripts
+observability
+docs
+models

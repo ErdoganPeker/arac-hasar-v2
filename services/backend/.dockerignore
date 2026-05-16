@@ -1,0 +1,62 @@
+# services/backend/.dockerignore
+# Keep the build context lean — anything not listed here will be sent
+# to the Docker daemon. ML training artefacts are huge, so exclude them.
+
+# ----- VCS / OS -----
+.git
+.gitignore
+.DS_Store
+Thumbs.db
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.venv/
+venv/
+env/
+ENV/
+
+# ----- Env / secrets -----
+.env
+.env.*
+!.env.example
+
+# ----- IDE -----
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ----- Test / docs -----
+tests/
+test/
+docs/
+*.md
+!README.md
+
+# ----- ML training/runs (read-only at build time) -----
+# Note: Dockerfile.embedded explicitly COPYs the snapshot dir,
+# .dockerignore patterns are relative to the build context root,
+# so the embedded build uses the repo root and is unaffected here.
+runs/
+logs/
+datasets/
+*.pt
+!cost_table.yaml
+
+# ----- Build artefacts -----
+dist/
+build/
+*.log

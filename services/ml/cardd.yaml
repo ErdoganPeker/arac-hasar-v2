@@ -1,0 +1,26 @@
+# cardd.yaml
+# YOLO segmentation veri konfigi - CarDD
+#
+# Not: Bu dosya prepare_data.py tarafindan otomatik uretilir.
+# Bu sablon referans olarak verilmistir.
+
+# Veri root klasoru (prepare_data.py --output_dir ile aynı olmali)
+path: ./data/cardd_yolo
+
+# Goreceli yollar
+train: images/train
+val: images/val
+test: images/test
+
+# Sinif sayisi
+nc: 6
+
+# Sinif isimleri - SIRA ONEMLI (0-tabanli index)
+# Bu sira CarDD'deki kategori sirasini korur
+names:
+  0: dent          # Gocuk
+  1: scratch       # Cizik
+  2: crack         # Catlak
+  3: glass_shatter # Cam kirilmasi
+  4: lamp_broken   # Far kirilmasi
+  5: tire_flat     # Lastik patlagi

@@ -1,0 +1,42 @@
+%%{init: {'theme':'base', 'themeVariables': {
+  'fontSize':'13px',
+  'sectionBkgColor':'#1e293b',
+  'altSectionBkgColor':'#0f172a',
+  'gridColor':'#475569',
+  'taskTextColor':'#f8fafc',
+  'taskTextDarkColor':'#f8fafc',
+  'taskTextLightColor':'#f8fafc',
+  'taskTextOutsideColor':'#f8fafc',
+  'doneTaskBkgColor':'#059669',
+  'doneTaskBorderColor':'#064e3b',
+  'activeTaskBkgColor':'#f59e0b',
+  'activeTaskBorderColor':'#b45309'
+}}}%%
+gantt
+    title Araç Hasar Tespit v2 — Model Eğitim Zaman Çizelgesi (RTX 5050 Laptop, 8GB VRAM)
+    dateFormat HH:mm
+    axisFormat %H:%M
+
+    section Hazırlık
+    Dataset indirme + sanity check       :prep1, 00:00, 30m
+    Augmentation config + class weights  :prep2, after prep1, 30m
+
+    section GPU-1 (Paralel)
+    DAMAGE — YOLO11m-seg fine-tune       :crit, active, dmg, 01:00, 5h
+    DAMAGE — validation + mAP raporu     :dmg_val, after dmg, 30m
+
+    section GPU-1 (Seri)
+    PARTS — YOLO11s-seg fine-tune        :crit, prt, after dmg_val, 4h
+    PARTS — validation + confusion mtx   :prt_val, after prt, 30m
+
+    section GPU-1 (Seri)
+    SEVERITY — EfficientNetV2-S fine-tune :crit, sev, after prt_val, 3h
+    SEVERITY — kalibrasyon + threshold   :sev_val, after sev, 30m
+
+    section Ensemble + Export
+    Pipeline integration testi           :integ, after sev_val, 1h
+    ONNX + TFLite export (mobile)        :export, after integ, 1h
+    Benchmark (latency, VRAM)            :bench, after export, 30m
+
+    section Toplam
+    Toplam süre (cold start dahil)       :milestone, total, 16:00, 0m

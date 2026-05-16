@@ -1,0 +1,19 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@arac-hasar/types": ["../../packages/types/src/index.ts"],
+      "@arac-hasar/types/*": ["../../packages/types/src/*"],
+      "@/*": ["./*"],
+      "@components/*": ["components/*"],
+      "@screens/*": ["screens/*"],
+      "@services/*": ["services/*"],
+      "@navigation/*": ["navigation/*"],
+      "@theme": ["theme/index.ts"],
+      "@i18n": ["i18n/index.ts"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}

@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "moduleResolution": "Bundler",
+    "outDir": "dist",
+    "noEmit": true,
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@arac-hasar/types": ["../../packages/types/src/index.ts"],
+      "@arac-hasar/types/*": ["../../packages/types/src/*"],
+      "@arac-hasar/ui": ["../../packages/ui/src/index.ts"],
+      "@arac-hasar/ui/*": ["../../packages/ui/src/*"]
+    }
+  },
+  "include": ["src/**/*", "vite.config.ts"],
+  "exclude": ["node_modules", "dist", "src-tauri"]
+}

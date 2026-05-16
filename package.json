@@ -1,0 +1,31 @@
+{
+  "name": "arac-hasar-v2",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Araç hasar tespiti multimodal MVP — web + desktop + mobile + ML pipeline",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.10.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev:web": "pnpm --filter @arac-hasar/web dev",
+    "dev:desktop": "pnpm --filter @arac-hasar/desktop dev",
+    "dev:mobile": "pnpm --filter @arac-hasar/mobile start",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter @arac-hasar/web build",
+    "build:desktop": "pnpm --filter @arac-hasar/desktop build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "backend:dev": "uvicorn services.backend.main:app --reload --host 0.0.0.0 --port 8000",
+    "backend:docker": "docker compose -f services/backend/docker-compose.yml up",
+    "ml:setup": "bash services/ml/setup.sh",
+    "data:download": "python scripts/download_data.py"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "prettier": "^3.4.2"
+  }
+}

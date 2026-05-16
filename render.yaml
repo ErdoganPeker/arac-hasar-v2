@@ -1,0 +1,168 @@
+# render.yaml — Render Blueprint for arac-hasar-v2
+# ----------------------------------------------------------------------
+# FREE-TIER PROFILE (active by default in this file).
+# For paid pilot/staging blueprint, see scripts/deploy/render-paid.yaml
+# (kept as historical reference; legacy contents are inlined at the bottom
+# of this file as comments).
+#
+# Free-tier services (cost = $0):
+#   - hasari-api    Render Free web service (512 MB / 0.1 CPU, sleeps after
+#                   15 min idle; cold start ~30 s on first request).
+#   - hasari-worker Render Free does NOT officially support background
+#                   workers. Workaround: run Celery in SOLO mode INSIDE the
+#                   web container at boot (see scripts/entrypoint_free.sh).
+#                   In production code, the API will also accept
+#                   FORCE_SYNC_INFERENCE=1 so /analyze runs inline if the
+#                   worker is unreachable (graceful degrade).
+#   - DB     -> Supabase Free (external, NOT managed here). 500 MB,
+#               pauses after 7 days idle.
+#   - Redis  -> Upstash Free (external, NOT managed here). 10K cmd/day.
+#   - S3     -> Cloudflare R2 Free (external). 10 GB storage, 10 GB egress.
+#
+# ML model weights strategy for free tier:
+#   We EMBED a quantized small model (yolo11s-seg ~20 MB) into the image
+#   so cold-start does not need an S3 download (Render free has no disk
+#   cache between restarts, and Upstash/R2 free bandwidth is precious).
+#   Use Dockerfile.embedded with MODEL_VARIANT=small to keep the final
+#   image well under Render's 10 GB free-tier image cap (target ~600 MB).
+#
+# IMPORTANT: secrets MUST be set in Render dashboard (sync: false). Never
+# commit them here. Use `JWT_SECRET_KEY: generateValue: true` so Render
+# auto-generates a 32-char secret on first deploy.
+# ----------------------------------------------------------------------
+
+services:
+  # ===================================================================
+  # Web service — FastAPI (FREE plan)
+  # ===================================================================
+  - type: web
+    name: hasari-api
+    runtime: docker
+    # repo: set this to your GitHub repo URL after first blueprint import,
+    # e.g. https://github.com/erdoganpeker/arac-hasar-v2
+    # Render Dashboard "Connect Repo" UI also resolves this automatically.
+    repo: https://github.com/erdoganpeker/arac-hasar-v2
+    branch: main
+    rootDir: .
+    dockerfilePath: ./services/backend/Dockerfile.embedded
+    dockerContext: .
+    plan: free                       # 512 MB RAM, sleeps after 15 min idle
+    region: frankfurt                # closest free region to TR
+    autoDeploy: false                # gated by GH Actions deploy hook
+    healthCheckPath: /health
+    numInstances: 1
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: ENVIRONMENT
+        value: production
+      - key: RUN_MIGRATIONS
+        value: "1"
+      - key: ML_DEVICE
+        value: cpu
+      - key: MODEL_DIR
+        value: /app/models
+      - key: MODEL_VARIANT
+        value: small                 # use yolo11s-seg (embedded ~20 MB)
+      - key: SKIP_MODEL_FETCH
+        value: "1"                   # weights are baked in; do not S3-pull
+      - key: FORCE_SYNC_INFERENCE
+        value: "1"                   # free tier has no worker -> run inline
+      - key: UVICORN_WORKERS
+        value: "1"                   # 512 MB cannot hold 2 workers + model
+      # ---- External services (set in dashboard, sync: false) ----
+      - key: DATABASE_URL            # Supabase pooled URL (pgbouncer 6543)
+        sync: false
+      - key: REDIS_URL               # Upstash rediss:// URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true          # Render generates 32-char secret
+      - key: API_KEYS
+        sync: false
+      # ---- S3 / Cloudflare R2 ----
+      - key: S3_ENDPOINT             # https://<acct>.r2.cloudflarestorage.com
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_PUBLIC_ENDPOINT      # https://pub-<id>.r2.dev or custom
+        sync: false
+      # ---- CORS — pin to Vercel URL ----
+      - key: CORS_ORIGINS
+        value: https://hasari.vercel.app
+      - key: CORS_ORIGIN_REGEX
+        value: ^https://hasari(-[a-z0-9]+)?\.vercel\.app$
+      # ---- Admin bootstrap (set once in dashboard) ----
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # ---- Optional observability ----
+      - key: SENTRY_DSN
+        sync: false
+
+  # ===================================================================
+  # Worker — DISABLED on free tier (Render Free does not support workers).
+  # We rely on FORCE_SYNC_INFERENCE=1 in the web service to run /analyze
+  # synchronously. When upgrading to a paid plan, UNCOMMENT this block
+  # and remove FORCE_SYNC_INFERENCE from the web service env.
+  # ===================================================================
+  # - type: worker
+  #   name: hasari-worker
+  #   runtime: docker
+  #   repo: https://github.com/REPLACE_ME/arac-hasar-v2
+  #   branch: main
+  #   rootDir: .
+  #   dockerfilePath: ./services/backend/Dockerfile.embedded
+  #   dockerContext: .
+  #   dockerCommand: celery -A worker.celery_app worker --loglevel=info --concurrency=1
+  #   plan: starter                  # workers require a paid plan
+  #   region: frankfurt
+  #   autoDeploy: false
+  #   numInstances: 1
+  #   envVars:
+  #     - key: ENVIRONMENT
+  #       value: production
+  #     - key: RUN_MIGRATIONS
+  #       value: "0"
+  #     - key: ML_DEVICE
+  #       value: cpu
+  #     - key: MODEL_DIR
+  #       value: /app/models
+  #     - key: MODEL_VARIANT
+  #       value: small
+  #     - key: SKIP_MODEL_FETCH
+  #       value: "1"
+  #     - key: DATABASE_URL
+  #       sync: false
+  #     - key: REDIS_URL
+  #       sync: false
+  #     - key: JWT_SECRET_KEY
+  #       fromService:
+  #         type: web
+  #         name: hasari-api
+  #         envVarKey: JWT_SECRET_KEY
+  #     - key: S3_ENDPOINT
+  #       sync: false
+  #     - key: S3_REGION
+  #       value: auto
+  #     - key: S3_ACCESS_KEY
+  #       sync: false
+  #     - key: S3_SECRET_KEY
+  #       sync: false
+  #     - key: S3_BUCKET
+  #       sync: false
+  #     - key: SENTRY_DSN
+  #       sync: false
+
+# ===================================================================
+# NO managed databases / redis on free tier — see docs/DEPLOY_FREE.md
+# for Supabase + Upstash setup. The legacy paid blueprint (hasarui-db
+# Postgres + hasarui-redis Redis) is kept in git history under the
+# `services/databases` section of earlier revisions of this file.
+# ===================================================================

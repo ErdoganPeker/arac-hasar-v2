@@ -1,0 +1,282 @@
+# docker-compose.yml (repo root)
+# ----------------------------------------------------------------------
+# Local DEV environment for arac-hasar-v2.
+#
+# What it brings up:
+#   - backend (FastAPI, hot-reload, mounts ./services/backend:/app)
+#   - worker  (Celery, same image)
+#   - postgres 16
+#   - redis 7
+#   - minio + minio-init (S3-mock, bucket auto-created)
+#
+# What it does NOT bring up (run with pnpm dev):
+#   - apps/web      -> cd apps/web      && pnpm dev   (port 3000)
+#   - apps/mobile   -> cd apps/mobile   && pnpm start
+#   - apps/desktop  -> cd apps/desktop  && pnpm tauri dev
+#
+# Quick start:
+#   docker compose up -d postgres redis minio minio-init
+#   docker compose up backend worker        # foreground, see logs
+#
+# For the full GPU/CUDA compose with bundled web container,
+# see services/backend/docker-compose.yml.
+# ----------------------------------------------------------------------
+
+name: arac-hasar-v2-dev
+
+services:
+  backend:
+    build:
+      context: ./services/backend
+      dockerfile: Dockerfile
+    image: hasarui-api:dev
+    container_name: hasarui-backend
+    # NOTE: --reload-exclude tames watchfiles churn from ML shim copies,
+    # __pycache__ writes, training log spew, and visualization PNGs that
+    # otherwise trigger a uvicorn restart loop in dev.
+    command: ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app --reload-exclude '*.log' --reload-exclude '*.png' --reload-exclude '*.jpg' --reload-exclude '__pycache__/*' --reload-exclude 'tests/*' --reload-exclude 'migrations/versions/*'"]
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./services/backend/.env
+    environment:
+      # Override URLs to point to compose service names
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/arac_hasar"
+      REDIS_URL: "redis://redis:6379/0"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+      S3_BUCKET: "inspections"
+      S3_REGION: "us-east-1"
+      ML_DEVICE: "cpu"
+      # Entrypoint skips S3 model fetch — we mount weights as a volume.
+      SKIP_MODEL_FETCH: "1"
+      RUN_MIGRATIONS: "1"
+      ENVIRONMENT: "development"
+      # Web (3000), Tauri desktop dev (1420) + prod webview origins, Expo mobile (8081)
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:1420,http://tauri.localhost,tauri://localhost,http://localhost:8081"
+      # Single-source ML modules: services/ml/ mounted read-only at /app/ml.
+      # PYTHONPATH includes /app/ml so `from pipeline import DamagePipeline`
+      # resolves to services/ml/pipeline.py without scripts/prepare-ml-shim.*
+      # having to copy files into services/backend/. /app still takes
+      # priority — backend-local override remains possible during a cutover.
+      PYTHONPATH: "/app:/app/ml"
+    volumes:
+      # Hot-reload: source mounted on top of image
+      - ./services/backend:/app
+      # ML single-source mount: services/ml/ read-only at /app/ml.
+      # Eliminates services/backend/pipeline.py drift vs services/ml/pipeline.py.
+      # prepare-ml-shim.{sh,ps1} is now only needed for the PRODUCTION docker
+      # build (CI bakes files in); dev runs straight off this mount.
+      # NOT: pretrained/ alt klasoru runtime'da yazilabilir (model_manager
+      # download bir kez .pt indirir, sonraki boot'larda cache hit). Kalan
+      # services/ml/ icerigi kod ve egitim verisi — dev'de read-write OK.
+      - ./services/ml:/app/ml
+      # Local model weights for dev (point at your snapshot dir or symlink).
+      # If this path is missing, run:
+      #   $env:MODEL_SNAPSHOT_DIR = "<absolute path to latest snapshot>"
+      # or edit the path below to the latest run under services/ml/runs/bundles/.
+      - ${MODEL_SNAPSHOT_DIR:-./services/ml/runs/bundles/full_20260515_044630/_SNAPSHOT_FOR_BUILD}:/app/models:ro
+    networks:
+      - hasarui-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Dev guardrail. Observed peak ~1.7 GiB (uvicorn 2 workers + YOLO ensemble
+    # + cv2/numpy + torch CPU). Render starter (512 MB) is undersized — we
+    # have to deploy on standard (2 GB) or trim to a single uvicorn worker
+    # + lazy model load. NOT mirrored to render.yaml in this change.
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "4.0"
+        reservations:
+          memory: 1G
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./services/backend
+      dockerfile: Dockerfile
+    image: hasarui-api:dev
+    container_name: hasarui-worker
+    command: ["sh", "-c", "celery -A worker.celery_app worker --loglevel=info --concurrency=1"]
+    env_file:
+      - ./services/backend/.env
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/arac_hasar"
+      REDIS_URL: "redis://redis:6379/0"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_ACCESS_KEY: "minioadmin"
+      S3_SECRET_KEY: "minioadmin"
+      S3_BUCKET: "inspections"
+      S3_REGION: "us-east-1"
+      ML_DEVICE: "cpu"
+      SKIP_MODEL_FETCH: "1"
+      RUN_MIGRATIONS: "0"
+      ENVIRONMENT: "development"
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:1420,http://tauri.localhost,tauri://localhost,http://localhost:8081"
+      # Celery prefork spawn temizler sys.path '' entry'sini; explicit PYTHONPATH
+      # zorunlu — yoksa worker `from pipeline import DamagePipeline` başarısız.
+      # /app/ml eklendi: services/ml/ tek-kaynak modülleri (pipeline.py vb.)
+      PYTHONPATH: "/app:/app/ml"
+    volumes:
+      - ./services/backend:/app
+      # Worker da ML modüllerini aynı tek-kaynak mount'tan okur.
+      # NOT: pretrained/ alt klasoru runtime'da yazilabilir (model_manager
+      # download bir kez .pt indirir, sonraki boot'larda cache hit). Kalan
+      # services/ml/ icerigi kod ve egitim verisi — dev'de read-write OK.
+      - ./services/ml:/app/ml
+      - ${MODEL_SNAPSHOT_DIR:-./services/ml/runs/bundles/full_20260515_044630/_SNAPSHOT_FOR_BUILD}:/app/models:ro
+    networks:
+      - hasarui-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      backend:
+        condition: service_started
+    # Override Dockerfile's HTTP /health check — worker has no HTTP server.
+    # Use Celery's own broker ping (returns "pong" from each running worker).
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A worker.celery_app inspect ping -d celery@$$HOSTNAME -t 5 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Worker ensemble inference 12 foto için peak ~2 GiB gözlemlendi.
+    # Concurrency=1 ile zaten serialize ediyoruz; 3 GiB tampon yeterli.
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "4.0"
+        reservations:
+          memory: 1G
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: hasarui-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: arac_hasar
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d arac_hasar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - hasarui-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: hasarui-redis
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - hasarui-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: hasarui-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console -> http://localhost:9001
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - hasarui-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: hasarui-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - hasarui-net
+    # Idempotent: --ignore-existing makes mb / anonymous safe to re-run.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        until mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null 2>&1; do
+          echo "minio-init: waiting for minio..."
+          sleep 1
+        done
+        mc mb --ignore-existing local/inspections
+        mc mb --ignore-existing local/models
+        mc anonymous set download local/inspections || true
+        echo "MinIO buckets ready: inspections, models"
+    restart: "no"
+
+networks:
+  hasarui-net:
+    driver: bridge
+
+volumes:
+  pg_data:
+  redis_data:
+  minio_data:

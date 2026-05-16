@@ -1,0 +1,68 @@
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor':'#0f172a',
+  'primaryTextColor':'#f8fafc',
+  'lineColor':'#64748b',
+  'fontSize':'13px'
+}}}%%
+flowchart LR
+    %% ============ KAYNAKLAR ============
+    subgraph Sources["Veri Kaynakları"]
+        direction TB
+        ULT["Ultralytics Hub<br/>yolo11{n,s,m,l,x}-seg.pt<br/>(COCO pre-trained)"]
+        RFU["Roboflow Universe<br/>car-damage-severity<br/>(3 sınıf: minor/mod/severe)"]
+        HF["HuggingFace<br/>vehicle-classification<br/>EfficientNetV2 weights"]
+        CARDD["CarDD Dataset<br/>──────────<br/>4000 görüntü<br/>9000 damage instance<br/>6 hasar sınıfı<br/>Academic non-commercial"]
+        CPSEG["CarParts-Seg<br/>──────────<br/>3500 görüntü<br/>23 parça sınıfı<br/>polygon mask<br/>CC-BY 4.0"]
+        TRPIL["TR Pilot Set (v1.1)<br/>──────────<br/>500-1000 görüntü<br/>(Hafta 11-12 etiketleme)<br/>Türk araç modelleri"]
+    end
+
+    %% ============ İŞLEME ============
+    subgraph Process["Pre-process + Augmentation"]
+        direction TB
+        AUG1["Damage Augmentation<br/>──────────<br/>mosaic, mixup, hsv,<br/>flip, rotate, scale<br/>imgsz=640"]
+        AUG2["Parts Augmentation<br/>──────────<br/>aynı set + perspective<br/>(araç açısı çeşitliliği)"]
+        AUG3["Severity Augmentation<br/>──────────<br/>crop around damage<br/>+ light/dark sim"]
+    end
+
+    %% ============ MODELLER ============
+    subgraph Models["Eğitilen Modeller"]
+        direction TB
+        MDMG["DAMAGE MODEL<br/>──────────<br/>YOLO11m-seg<br/>6 sınıf, 22M params<br/>~40 MB"]
+        MPRT["PARTS MODEL<br/>──────────<br/>YOLO11s-seg<br/>23 sınıf, 11M params<br/>~22 MB"]
+        MSEV["SEVERITY MODEL<br/>──────────<br/>EfficientNetV2-S<br/>3 sınıf, 21M params<br/>~85 MB"]
+    end
+
+    %% ============ PIPELINE ============
+    PIPE(("Hibrit Paralel<br/>ML Pipeline"))
+
+    %% ===== EDGES =====
+    ULT -- "transfer learning<br/>fine-tune" --> AUG1
+    ULT -- "transfer learning<br/>fine-tune" --> AUG2
+    HF -- "init weights" --> AUG3
+
+    CARDD --> AUG1
+    CPSEG --> AUG2
+    RFU --> AUG3
+    TRPIL -. "v1.1 fine-tune" .-> AUG1
+    TRPIL -. "v1.1 fine-tune" .-> AUG2
+
+    AUG1 --> MDMG
+    AUG2 --> MPRT
+    AUG3 --> MSEV
+
+    MDMG --> PIPE
+    MPRT --> PIPE
+    MSEV --> PIPE
+
+    %% ===== STYLES =====
+    classDef source   fill:#0891b2,stroke:#155e75,color:#fff,stroke-width:2px
+    classDef pre      fill:#7c3aed,stroke:#5b21b6,color:#fff,stroke-width:2px
+    classDef process  fill:#f59e0b,stroke:#b45309,color:#1c1917,stroke-width:2px
+    classDef model    fill:#dc2626,stroke:#7f1d1d,color:#fff,stroke-width:2px
+    classDef pipe     fill:#059669,stroke:#064e3b,color:#fff,stroke-width:3px
+
+    class CARDD,CPSEG,TRPIL source
+    class ULT,RFU,HF pre
+    class AUG1,AUG2,AUG3 process
+    class MDMG,MPRT,MSEV model
+    class PIPE pipe

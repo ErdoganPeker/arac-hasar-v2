@@ -1,0 +1,172 @@
+# tests/test_cases.yaml
+# Regression test case'leri.
+#
+# Her case'de:
+#   id: benzersiz ID
+#   image: test goruntusunun yolu
+#   description: insan-okunur aciklama
+#   expected: beklenen ozet ciktiler
+#     has_damage: bool
+#     damage_count: int (count_tolerance ile)
+#     must_contain_types: liste - tespit edilmesi gereken siniflar
+#     cost_range_check:
+#       min_below: maliyet min bu rakamin altinda olmali
+#       max_above: maliyet max bu rakamin uzerinde olmali
+#
+# Goruntuleri tests/fixtures/ altinda tut, git LFS veya S3 kullan.
+
+version: 1
+cases:
+
+  # ==================== HASARSIZ ====================
+
+  - id: clean_001
+    image: tests/fixtures/clean/car_white_001.jpg
+    description: "Beyaz sedan, hasarsiz"
+    expected:
+      has_damage: false
+      damage_count: 0
+
+  - id: clean_002
+    image: tests/fixtures/clean/car_black_002.jpg
+    description: "Siyah SUV, hasarsiz"
+    expected:
+      has_damage: false
+      damage_count: 0
+
+  - id: clean_003
+    image: tests/fixtures/clean/car_red_003.jpg
+    description: "Kirmizi hatchback, parlak yuzey - yansima false positive testi"
+    expected:
+      has_damage: false
+      damage_count: 0
+      count_tolerance: 1  # 1 false positive tolere ederiz
+
+  # ==================== TEK HAFIF HASAR ====================
+
+  - id: light_scratch_001
+    image: tests/fixtures/light/scratch_door_001.jpg
+    description: "Sol on kapida kucuk cizik"
+    expected:
+      has_damage: true
+      damage_count: 1
+      count_tolerance: 1
+      must_contain_types: ["scratch"]
+      cost_range_check:
+        min_below: 1500
+        max_above: 200
+
+  - id: light_dent_001
+    image: tests/fixtures/light/dent_hood_001.jpg
+    description: "Kaputta kucuk gocuk"
+    expected:
+      has_damage: true
+      must_contain_types: ["dent"]
+      cost_range_check:
+        min_below: 2500
+        max_above: 500
+
+  - id: light_chip_001
+    image: tests/fixtures/light/paint_chip_001.jpg
+    description: "Tamponda boya cikmasi (tas)"
+    expected:
+      has_damage: true
+
+  # ==================== ORTA HASAR ====================
+
+  - id: medium_dent_001
+    image: tests/fixtures/medium/dent_fender_001.jpg
+    description: "Camurlukta orta boy gocuk"
+    expected:
+      has_damage: true
+      must_contain_types: ["dent"]
+      cost_range_check:
+        max_above: 1500
+        min_below: 6000
+
+  - id: medium_scratch_001
+    image: tests/fixtures/medium/long_scratch_side_001.jpg
+    description: "Yan tarafta uzun cizik, birkac kapiyi geciyor"
+    expected:
+      has_damage: true
+      damage_count: 1
+      count_tolerance: 2
+
+  - id: medium_lamp_001
+    image: tests/fixtures/medium/broken_headlight_001.jpg
+    description: "On far kirilmasi"
+    expected:
+      has_damage: true
+      must_contain_types: ["lamp_broken"]
+      cost_range_check:
+        max_above: 2500
+
+  # ==================== AGIR / COKLU ====================
+
+  - id: heavy_multi_001
+    image: tests/fixtures/heavy/multi_damage_front_001.jpg
+    description: "On carpisma: tampon + far + kaput hasari"
+    expected:
+      has_damage: true
+      damage_count: 3
+      count_tolerance: 2
+      cost_range_check:
+        max_above: 10000
+
+  - id: heavy_glass_001
+    image: tests/fixtures/heavy/windshield_shatter_001.jpg
+    description: "On cam tamamen catlamis"
+    expected:
+      has_damage: true
+      must_contain_types: ["crack"]
+      cost_range_check:
+        max_above: 5000
+
+  - id: heavy_side_001
+    image: tests/fixtures/heavy/side_impact_001.jpg
+    description: "Yan carpisma: 2 kapi + tampon"
+    expected:
+      has_damage: true
+      damage_count: 2
+      count_tolerance: 2
+
+  # ==================== EDGE CASES ====================
+
+  - id: edge_low_light_001
+    image: tests/fixtures/edge/dim_light_dent_001.jpg
+    description: "Loş işıkta gocuk - robust olmali"
+    expected:
+      has_damage: true
+
+  - id: edge_wet_001
+    image: tests/fixtures/edge/wet_car_scratch_001.jpg
+    description: "Yagisli/islanmis arac"
+    expected:
+      has_damage: true
+
+  - id: edge_dirty_001
+    image: tests/fixtures/edge/dirty_car_001.jpg
+    description: "Kirli arac - kirin hasar gibi tespit edilmemesi"
+    expected:
+      has_damage: false
+      count_tolerance: 1
+
+  - id: edge_reflection_001
+    image: tests/fixtures/edge/reflection_001.jpg
+    description: "Parlak gunes yansimasi - false positive olmamali"
+    expected:
+      has_damage: false
+      count_tolerance: 1
+
+  - id: edge_shadow_001
+    image: tests/fixtures/edge/strong_shadow_001.jpg
+    description: "Sert golge - dent olarak tespit edilmemesi"
+    expected:
+      has_damage: false
+      count_tolerance: 1
+
+  # Notlar:
+  # - Toplam 50 case hedefi var; yukaridaki 17 case bir sablondur.
+  # - Geri kalan 33 case'i pilot sirasinda real-world goruntulerle doldur.
+  # - Tum goruntuleri Git LFS veya S3'te tut (tests/fixtures/ altinda).
+  # - Her ay 2-3 yeni edge case ekle ki suite zenginlessin.

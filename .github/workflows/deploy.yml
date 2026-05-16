@@ -1,0 +1,90 @@
+# .github/workflows/deploy.yml
+# Trigger Render deploys only after CI passes on main.
+#
+# Render natively auto-deploys on push (autoDeploy: true in render.yaml).
+# This workflow exists so that:
+#   1. Render's deploy hook fires ONLY when the CI workflow has gone green
+#      (avoids deploying a broken main if a force-push slips past).
+#   2. We can manually trigger a redeploy from the Actions tab.
+#
+# Setup:
+#   1. In Render dashboard, open hasarui-api -> Settings -> Deploy Hook,
+#      copy the URL, save as repo secret RENDER_DEPLOY_HOOK_API.
+#   2. Same for hasarui-worker -> RENDER_DEPLOY_HOOK_WORKER.
+#   3. (Recommended) In render.yaml, flip autoDeploy: false so Render
+#      waits for this hook instead of deploying on every push.
+name: Deploy (Render)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which service to redeploy"
+        required: true
+        default: "both"
+        type: choice
+        options: [api, worker, both]
+
+jobs:
+  gate:
+    name: Gate on CI success
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    outputs:
+      deploy_api: ${{ steps.pick.outputs.api }}
+      deploy_worker: ${{ steps.pick.outputs.worker }}
+    steps:
+      - id: pick
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            t="${{ github.event.inputs.target }}"
+            case "$t" in
+              api)    echo "api=1"    >> $GITHUB_OUTPUT; echo "worker=0" >> $GITHUB_OUTPUT ;;
+              worker) echo "api=0"    >> $GITHUB_OUTPUT; echo "worker=1" >> $GITHUB_OUTPUT ;;
+              both|*) echo "api=1"    >> $GITHUB_OUTPUT; echo "worker=1" >> $GITHUB_OUTPUT ;;
+            esac
+          else
+            echo "api=1"    >> $GITHUB_OUTPUT
+            echo "worker=1" >> $GITHUB_OUTPUT
+          fi
+
+  deploy-api:
+    name: Trigger Render deploy — hasarui-api
+    needs: gate
+    if: needs.gate.outputs.deploy_api == '1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit Render deploy hook (api)
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_API }}
+        run: |
+          if [[ -z "$HOOK" ]]; then
+            echo "::error::RENDER_DEPLOY_HOOK_API secret not set."
+            exit 1
+          fi
+          curl --fail --silent --show-error --request POST "$HOOK" \
+            && echo "API deploy triggered."
+
+  deploy-worker:
+    name: Trigger Render deploy — hasarui-worker
+    needs: gate
+    if: needs.gate.outputs.deploy_worker == '1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit Render deploy hook (worker)
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_WORKER }}
+        run: |
+          if [[ -z "$HOOK" ]]; then
+            echo "::error::RENDER_DEPLOY_HOOK_WORKER secret not set."
+            exit 1
+          fi
+          curl --fail --silent --show-error --request POST "$HOOK" \
+            && echo "Worker deploy triggered."

@@ -1,0 +1,224 @@
+# cost_table.yaml
+# Turkiye icin tahmini onarim maliyet araliklari (TL)
+#
+# UYARI: Bu degerler 2025 sonu/2026 baslangic genel piyasa rakamlarina dayali
+# ILK tahmindir. Gercek pilot verisi ile (sigortaci hasar dosyalari, oto-pazar,
+# yetkili servis fiyatlari) duzeltilmesi gerekir.
+#
+# Format:
+#   <part_name>:
+#     <damage_type>:
+#       <severity>: [min_tl, max_tl]
+#     default:                      # parca icin tum hasar tipleri default
+#       <severity>: [min_tl, max_tl]
+#
+# Onerilen veri kaynaklari:
+# - TSB (Turkiye Sigorta Birligi) ortalama hasar verisi
+# - otoyedek.com, parcacim.com (yedek parca)
+# - Renault/Fiat/Hyundai/Ford TR yetkili servis liste fiyatlari
+# - Bagimsiz oto-boyaci tarifeleri (saha calismasi)
+
+# Global fallback - parca bilinmiyorsa
+_global:
+  scratch:
+    hafif: [200, 800]       # Pasta cila
+    orta: [1000, 3500]      # Boya islemi
+    agir: [3500, 12000]     # Genis alan boya
+  dent:
+    hafif: [400, 1500]      # PDR (boyasiz gocuk)
+    orta: [2000, 5500]      # Duzeltme + boya
+    agir: [5000, 18000]     # Parca degisimi
+  crack:
+    hafif: [300, 1200]
+    orta: [1500, 4500]
+    agir: [4000, 15000]
+  glass_shatter:
+    hafif: [800, 2500]      # Kucuk cam
+    orta: [3000, 8000]      # Yan cam, far camlari
+    agir: [4500, 14000]     # On cam tam degisim
+  lamp_broken:
+    hafif: [600, 2000]      # Cerceve onarimi
+    orta: [2500, 7000]      # Far degisimi
+    agir: [6000, 25000]     # LED/Xenon/Matrix far
+  tire_flat:
+    hafif: [200, 600]       # Yamalama
+    orta: [1500, 4000]      # Tek lastik degisimi
+    agir: [4500, 14000]     # Coklu lastik + jant
+
+# Parca bazinda detay - daha hassas tahmin
+front_bumper:
+  scratch:
+    hafif: [200, 700]
+    orta: [1500, 3500]
+    agir: [4000, 10000]
+  dent:
+    hafif: [500, 1500]
+    orta: [2500, 5500]
+    agir: [5500, 14000]    # Yeni tampon + boya + montaj
+  crack:
+    hafif: [400, 1200]
+    orta: [2000, 4500]
+    agir: [5000, 13000]
+  default:
+    hafif: [400, 1500]
+    orta: [2000, 5000]
+    agir: [5000, 13000]
+
+back_bumper:
+  scratch:
+    hafif: [200, 700]
+    orta: [1500, 3500]
+    agir: [4000, 10000]
+  dent:
+    hafif: [500, 1500]
+    orta: [2500, 5500]
+    agir: [5500, 14000]
+  default:
+    hafif: [400, 1500]
+    orta: [2000, 5000]
+    agir: [5000, 13000]
+
+hood:
+  dent:
+    hafif: [800, 2500]      # Hood gocugu PDR genelde daha zor
+    orta: [3000, 7000]
+    agir: [7000, 18000]
+  scratch:
+    hafif: [300, 1200]
+    orta: [2000, 5000]
+    agir: [5000, 14000]
+  default:
+    hafif: [500, 2000]
+    orta: [2500, 6000]
+    agir: [6000, 16000]
+
+front_glass:
+  crack:
+    hafif: [1500, 3000]     # Tas izi tamiri
+    orta: [4500, 9000]      # Cam degisim, normal arac
+    agir: [8000, 25000]     # Sensorlu on cam, premium arac
+  glass_shatter:
+    hafif: [3000, 6000]
+    orta: [6000, 12000]
+    agir: [10000, 30000]
+  default:
+    hafif: [1500, 4000]
+    orta: [4500, 10000]
+    agir: [9000, 28000]
+
+back_glass:
+  crack:
+    hafif: [800, 2500]
+    orta: [3000, 6000]
+    agir: [5500, 12000]
+  glass_shatter:
+    hafif: [2000, 4500]
+    orta: [4500, 9000]
+    agir: [7500, 15000]
+  default:
+    hafif: [1500, 3500]
+    orta: [3500, 7000]
+    agir: [6500, 13000]
+
+front_left_door:
+  &door_costs
+  scratch:
+    hafif: [300, 1000]
+    orta: [1800, 4500]
+    agir: [4500, 12000]
+  dent:
+    hafif: [600, 1800]
+    orta: [2500, 6000]
+    agir: [6000, 16000]
+  default:
+    hafif: [500, 1800]
+    orta: [2500, 5500]
+    agir: [5500, 14000]
+
+front_right_door: *door_costs
+back_left_door: *door_costs
+back_right_door: *door_costs
+
+front_left_light:
+  &light_costs
+  lamp_broken:
+    hafif: [800, 2500]
+    orta: [3500, 9000]      # Halojen far
+    agir: [12000, 35000]    # LED/Matrix/Adaptif
+  crack:
+    hafif: [500, 1500]
+    orta: [2000, 5500]
+    agir: [8000, 22000]
+  default:
+    hafif: [700, 2200]
+    orta: [3000, 7500]
+    agir: [10000, 28000]
+
+front_right_light: *light_costs
+front_light: *light_costs
+
+back_left_light:
+  &back_light_costs
+  lamp_broken:
+    hafif: [400, 1500]
+    orta: [2000, 5000]
+    agir: [5500, 15000]
+  default:
+    hafif: [500, 1800]
+    orta: [2000, 5500]
+    agir: [6000, 16000]
+
+back_right_light: *back_light_costs
+back_light: *back_light_costs
+
+left_mirror:
+  &mirror_costs
+  scratch:
+    hafif: [200, 600]
+    orta: [800, 2000]
+    agir: [2000, 6000]      # Elektrikli/katlanan/kameralı
+  lamp_broken:
+    hafif: [500, 1500]
+    orta: [1500, 4000]
+    agir: [4000, 10000]
+  default:
+    hafif: [300, 900]
+    orta: [1200, 3500]
+    agir: [3500, 9000]
+
+right_mirror: *mirror_costs
+
+wheel:
+  scratch:
+    hafif: [200, 800]       # Jant rondaj/boyama
+    orta: [1500, 4500]
+    agir: [3500, 12000]     # Jant + lastik
+  dent:
+    hafif: [800, 2500]
+    orta: [3000, 7000]
+    agir: [6000, 15000]
+  tire_flat:
+    hafif: [200, 600]
+    orta: [1500, 4000]
+    agir: [4500, 14000]
+  default:
+    hafif: [400, 1500]
+    orta: [2000, 5500]
+    agir: [4500, 14000]
+
+tailgate:
+  &tailgate_costs
+  scratch:
+    hafif: [400, 1500]
+    orta: [2000, 5500]
+    agir: [5000, 13000]
+  dent:
+    hafif: [800, 2500]
+    orta: [3500, 8000]
+    agir: [7000, 18000]
+  default:
+    hafif: [600, 2000]
+    orta: [3000, 7000]
+    agir: [6500, 16000]
+
+trunk: *tailgate_costs

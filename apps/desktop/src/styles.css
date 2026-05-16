@@ -1,0 +1,67 @@
+/* Desktop-specific overrides */
+
+/* Surface colors that react to dark mode */
+html.dark body {
+  background-color: rgb(2 6 23);  /* slate-950 */
+  color: rgb(226 232 240);        /* slate-200 */
+}
+html:not(.dark) body {
+  background-color: rgb(248 250 252); /* slate-50 */
+  color: rgb(15 23 42);               /* slate-900 */
+}
+
+html,
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Allow text selection in inputs and results */
+input,
+textarea,
+[data-selectable],
+[data-selectable] * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Tauri title bar drag region */
+.titlebar-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.titlebar-button,
+.titlebar-drag button,
+.titlebar-drag input,
+.titlebar-drag select,
+.titlebar-drag a {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Smooth scrolling */
+* {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar for desktop feel */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.32);
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(226, 232, 240, 0.2);
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(226, 232, 240, 0.36);
+}

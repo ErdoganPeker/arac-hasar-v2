@@ -1,0 +1,134 @@
+# .github/workflows/deploy-free.yml
+# ------------------------------------------------------------------
+# FREE-TIER deploy workflow for arac-hasar-v2.
+#
+# Triggers Render (hasari-api) deploy ONLY after CI is green on main.
+# Vercel deploys automatically on push (no GH Action needed) because
+# the repo is connected to the Vercel project — this workflow's
+# `vercel-status` job just records the deployment URL for visibility.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   RENDER_DEPLOY_HOOK_API    = https://api.render.com/deploy/srv-XXX?key=YYY
+#   (no Vercel token needed — Vercel auto-deploys via its own GitHub App)
+#
+# Setup steps:
+#   1. Render dashboard -> hasari-api -> Settings -> Deploy Hook -> copy URL.
+#   2. GitHub repo -> Settings -> Secrets -> add RENDER_DEPLOY_HOOK_API.
+#   3. Push to main; this workflow will run after CI succeeds.
+# ------------------------------------------------------------------
+name: Deploy (Free Tier)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      skip_ci_gate:
+        description: "Skip CI-success gate (use only for hotfix)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+concurrency:
+  group: deploy-free-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ----------------------------------------------------------------
+  # Gate — pass only if CI was green (unless manually overridden).
+  # ----------------------------------------------------------------
+  gate:
+    name: Gate on CI success
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    steps:
+      - name: Report trigger
+        run: |
+          echo "Trigger: ${{ github.event_name }}"
+          echo "CI conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "Head branch:   ${{ github.event.workflow_run.head_branch }}"
+
+  # ----------------------------------------------------------------
+  # Trigger Render deploy for the API web service.
+  # ----------------------------------------------------------------
+  deploy-render-api:
+    name: Render — hasari-api
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit Render deploy hook
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_API }}
+        run: |
+          if [[ -z "$HOOK" ]]; then
+            echo "::error::Secret RENDER_DEPLOY_HOOK_API is not set."
+            echo "Add it in repo Settings -> Secrets -> Actions."
+            exit 1
+          fi
+          response=$(curl --fail --silent --show-error -X POST "$HOOK")
+          echo "Render response: $response"
+          echo "API deploy triggered. Tail logs at: https://dashboard.render.com/web/hasari-api"
+
+      - name: Wait for service warm-up
+        run: |
+          echo "Render free instances cold-start in ~30-60 s after deploy."
+          echo "Health probe will poll until /health responds 200 (max 5 min)."
+
+      - name: Poll /health (best-effort)
+        continue-on-error: true
+        run: |
+          API_URL="${{ vars.HASARI_API_URL || 'https://hasari-api.onrender.com' }}"
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health" || echo "000")
+            echo "Attempt $i: HTTP $code"
+            if [[ "$code" == "200" ]]; then
+              echo "API is healthy."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::Health check did not return 200 within 5 minutes (free-tier cold start can be slow)."
+
+  # ----------------------------------------------------------------
+  # Vercel — informational only. The Vercel GitHub App auto-deploys
+  # on push to main (configured in vercel.com -> Project -> Git).
+  # This job just emits a friendly link.
+  # ----------------------------------------------------------------
+  vercel-status:
+    name: Vercel — hasari.vercel.app (auto)
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Note
+        run: |
+          echo "Vercel auto-deploys via its GitHub integration."
+          echo "Inspect at: https://vercel.com/dashboard"
+          echo "Production URL: https://hasari.vercel.app"
+
+  # ----------------------------------------------------------------
+  # Final summary in the run page.
+  # ----------------------------------------------------------------
+  summary:
+    name: Deploy summary
+    needs: [deploy-render-api, vercel-status]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write summary
+        run: |
+          {
+            echo "## Free-tier deploy summary"
+            echo ""
+            echo "| Component | Status | URL |"
+            echo "|-----------|--------|-----|"
+            echo "| Render API   | ${{ needs.deploy-render-api.result }} | https://hasari-api.onrender.com |"
+            echo "| Vercel Web   | ${{ needs.vercel-status.result }}     | https://hasari.vercel.app |"
+            echo ""
+            echo "Cold-start note: first request after 15 min idle will take ~30 s on Render Free."
+          } >> "$GITHUB_STEP_SUMMARY"

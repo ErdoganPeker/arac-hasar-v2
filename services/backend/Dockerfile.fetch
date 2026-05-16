@@ -1,0 +1,100 @@
+# syntax=docker/dockerfile:1.6
+#
+# services/backend/Dockerfile.fetch
+# ------------------------------------------------------------------
+# Render-targeted, CPU-only, slim image. Model weights are NOT baked
+# into the image — they are pulled from S3 at container boot by
+# scripts/entrypoint.sh, then uvicorn / celery is exec'd.
+#
+# Result: ~600 MB image, ~30-60 s cold boot (model download + warmup).
+# Use this for hasarui-api and hasarui-worker on Render.
+# ------------------------------------------------------------------
+
+# ---------- Stage 1: builder ----------
+FROM python:3.11-slim-bookworm AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Build deps for wheels (psycopg2, Pillow, opencv source builds — rare on slim)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        libpq-dev \
+        curl \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Install CPU-only torch BEFORE requirements so ultralytics doesn't pull CUDA build.
+COPY requirements.txt ./requirements.txt
+RUN pip install --upgrade pip wheel && \
+    pip wheel --wheel-dir=/build/wheels \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        torch==2.3.1+cpu torchvision==0.18.1+cpu && \
+    pip wheel --wheel-dir=/build/wheels -r requirements.txt
+
+# ---------- Stage 2: runtime ----------
+FROM python:3.11-slim-bookworm AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=8000 \
+    MODEL_DIR=/app/models \
+    ML_DEVICE=cpu
+
+# Runtime system deps:
+#   libgl1, libglib2.0-0, libsm6, libxext6, libxrender1  -> opencv-python
+#   libpq5                                               -> asyncpg / psycopg2
+#   curl, ca-certificates                                -> healthcheck + S3 fetch
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        libpq5 \
+        curl \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd --gid 1000 app && \
+    useradd  --uid 1000 --gid app --create-home --shell /bin/bash app
+
+WORKDIR /app
+
+# Install pre-built wheels from builder stage
+COPY --from=builder /build/wheels /tmp/wheels
+COPY requirements.txt ./requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-index --find-links=/tmp/wheels \
+        torch==2.3.1+cpu torchvision==0.18.1+cpu && \
+    pip install --no-index --find-links=/tmp/wheels -r requirements.txt && \
+    rm -rf /tmp/wheels
+
+# App source (lean copy — see .dockerignore)
+COPY --chown=app:app *.py ./
+COPY --chown=app:app cost_table.yaml ./
+COPY --chown=app:app alembic.ini ./
+COPY --chown=app:app migrations ./migrations
+COPY --chown=app:app scripts ./scripts
+
+# Entrypoint pulls model bundle from S3 then exec's the real command.
+COPY --chown=app:app scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh && \
+    mkdir -p ${MODEL_DIR} && chown -R app:app ${MODEL_DIR}
+
+USER app
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl --fail http://localhost:${PORT}/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Default command — overridden by Render worker service via dockerCommand.
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 2"]

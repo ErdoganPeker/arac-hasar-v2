@@ -1,0 +1,33 @@
+# parts.yaml
+# Parca segmentasyonu YOLO veri konfigi
+# Bu dosya prepare_parts_data.py tarafindan otomatik uretilir
+
+path: ./data/parts_combined
+train: images/train
+val: images/val
+test: images/test
+
+nc: 21
+
+names:
+  0: back_bumper
+  1: back_door
+  2: back_glass
+  3: back_left_door
+  4: back_left_light
+  5: back_light
+  6: back_right_door
+  7: back_right_light
+  8: front_bumper
+  9: front_glass
+  10: front_left_door
+  11: front_left_light
+  12: front_light
+  13: front_right_door
+  14: front_right_light
+  15: hood
+  16: left_mirror
+  17: right_mirror
+  18: tailgate
+  19: trunk
+  20: wheel

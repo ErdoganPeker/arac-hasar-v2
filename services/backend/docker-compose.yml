@@ -1,0 +1,174 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # CORS — web (Next.js), Tauri desktop, Expo mobile
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://localhost:1420,http://tauri.localhost,tauri://localhost,http://localhost:8081}"
+      CORS_ORIGIN_REGEX: "${CORS_ORIGIN_REGEX:-^(https?://([a-z0-9-]+\\.)*vercel\\.app|tauri://localhost|http://tauri\\.localhost|capacitor://localhost|http://localhost(:\\d+)?)$$}"
+      # Auth (bos => dev mode)
+      API_KEYS: "${API_KEYS:-}"
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
+      API_VERSION: "${API_VERSION:-0.2.0}"
+      GIT_SHA: "${GIT_SHA:-dev}"
+      BUILD_TIME: "${BUILD_TIME:-unknown}"
+      # External
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/arac_hasar"
+      REDIS_URL: "redis://redis:6379/0"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_PUBLIC_ENDPOINT: "${S3_PUBLIC_ENDPOINT:-http://localhost:9000}"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./models:/app/models:ro
+      - ./cost_table.yaml:/app/cost_table.yaml:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A worker.celery_app worker --loglevel=info --concurrency=1
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/arac_hasar"
+      REDIS_URL: "redis://redis:6379/0"
+      S3_ENDPOINT: "http://minio:9000"
+      S3_PUBLIC_ENDPOINT: "${S3_PUBLIC_ENDPOINT:-http://localhost:9000}"
+      API_KEYS: "${API_KEYS:-}"
+      ENVIRONMENT: "${ENVIRONMENT:-development}"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./models:/app/models:ro
+      - ./cost_table.yaml:/app/cost_table.yaml:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: arac_hasar
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d arac_hasar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --save 60 1
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # API (S3 protokol)
+      - "9001:9001"   # Console (web UI: http://localhost:9001)
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Bucket otomatik olustur
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb --ignore-existing local/inspections;
+      mc anonymous set download local/inspections;
+      exit 0;
+      "
+
+  # Next.js 15 web (App Router) — standalone build
+  web:
+    build:
+      # Monorepo kökü gerekli (pnpm workspace + packages/* için)
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        # NEXT_PUBLIC_* env'leri build-time'da bake olur.
+        # Browser host'tan eriştiği için localhost:8000 (compose'un host port mapping'i).
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:8000}"
+    image: arac-hasar-web:latest
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      # Runtime override imkanı (server-side fetch için container içi DNS)
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:8000}"
+      INTERNAL_API_URL: "http://api:8000"
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:
+  redisdata:

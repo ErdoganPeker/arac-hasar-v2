@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Hasarİ — Araç Hasar Tespiti</title>
+    <!--
+      Inline boot script to avoid a flash of the wrong theme.
+      Reads `system.theme` from the Tauri Store (or localStorage fallback) and
+      applies the dark class before React mounts.
+    -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('arac-hasar-settings');
+          var mode = raw ? (JSON.parse(raw).theme || 'system') : 'system';
+          var dark =
+            mode === 'dark' ||
+            (mode === 'system' &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="h-screen overflow-hidden">
+    <div id="root" class="h-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

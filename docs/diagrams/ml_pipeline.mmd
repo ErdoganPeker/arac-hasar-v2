@@ -1,0 +1,75 @@
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor':'#0f172a',
+  'primaryTextColor':'#f8fafc',
+  'lineColor':'#64748b',
+  'fontSize':'14px'
+}}}%%
+flowchart TB
+    START([Kullanıcı Görseli<br/>JPEG / PNG / HEIC])
+
+    QC{"Quality Check<br/>blur, exposure,<br/>vehicle present?"}
+    REJECT([Reddet:<br/>'Yeniden çek' rehberi])
+
+    %% PARALLEL INFERENCE BLOCK
+    SPLIT(("PARALEL<br/>İNFERANS"))
+
+    subgraph Parallel["Eş-zamanlı YOLO İnferansı (GPU batch)"]
+        direction LR
+        DMG["YOLO11m-seg — HASAR<br/>──────────<br/>Sınıflar (6):<br/>scratch, dent,<br/>glass_shatter, crack,<br/>tire_flat, missing_part<br/>──────────<br/>Çıktı: damages[]<br/>{type, polygon, conf}"]
+        PRT["YOLO11s-seg — PARÇA<br/>──────────<br/>Sınıflar (23):<br/>front-bumper, hood,<br/>door-fl/fr/rl/rr,<br/>fender, headlight,<br/>windshield, mirror,<br/>wheel, trunk, ...<br/>──────────<br/>Çıktı: parts[]<br/>{name, polygon, conf}"]
+    end
+
+    JOIN(("EŞLEME"))
+
+    IOU["IoU + intersection_ratio<br/>──────────<br/>Her hasar -> aday parça(lar)<br/>threshold: 0.05 (düşük, bilinçli)"]
+
+    DECISION{"Eşleşme<br/>durumu?"}
+    SINGLE["Tek parça<br/>primary_part = X"]
+    MULTI["Multi-part hasar<br/>primary + secondary[]<br/>is_multi_part = true"]
+    UNK["Parça bulunamadı<br/>primary_part = 'unknown'"]
+    LOWCONF["is_low_confidence_match<br/>= true"]
+
+    SEV["Severity Ensemble<br/>──────────<br/>(1) Rule-based: area_ratio + tip<br/>(2) CNN (EfficientNetV2-S)<br/>(3) Ağırlıklı: %40 / %60<br/>──────────<br/>hafif / orta / ağır"]
+
+    COSTENG["Maliyet Motoru<br/>──────────<br/>cost_table.yaml lookup:<br/>(parça, tip, şiddet) -> TL range<br/>──────────<br/>Aynı parçada çoklu hasar:<br/>en pahalı dominant<br/>'tek parça değişimi kapsar'"]
+
+    OUT["Output Formatter<br/>──────────<br/>parça-merkezli reorganize<br/>+ hasarsız parçalar 'clean'<br/>+ visualization 3x PNG<br/>(annotated / parts / damages)"]
+
+    END([Pydantic Response<br/>+ S3 URL'leri])
+
+    %% ===== FLOW =====
+    START --> QC
+    QC -- "FAIL" --> REJECT
+    QC -- "PASS" --> SPLIT
+    SPLIT -.paralel.-> DMG
+    SPLIT -.paralel.-> PRT
+    DMG --> JOIN
+    PRT --> JOIN
+    JOIN --> IOU
+    IOU --> DECISION
+    DECISION -- "1 aday" --> SINGLE
+    DECISION -- "2+ aday" --> MULTI
+    DECISION -- "0 aday" --> UNK
+    DECISION -- "iou<0.05" --> LOWCONF
+    SINGLE --> SEV
+    MULTI --> SEV
+    UNK --> SEV
+    LOWCONF --> SEV
+    SEV --> COSTENG
+    COSTENG --> OUT
+    OUT --> END
+
+    %% ===== STYLES =====
+    classDef io       fill:#1e40af,stroke:#1e3a8a,color:#fff,stroke-width:2px
+    classDef check    fill:#f59e0b,stroke:#b45309,color:#1c1917,stroke-width:2px
+    classDef parallel fill:#dc2626,stroke:#7f1d1d,color:#fff,stroke-width:3px
+    classDef logic    fill:#7c3aed,stroke:#5b21b6,color:#fff,stroke-width:2px
+    classDef output   fill:#059669,stroke:#064e3b,color:#fff,stroke-width:2px
+    classDef warn     fill:#9ca3af,stroke:#4b5563,color:#fff,stroke-width:2px
+
+    class START,END io
+    class QC,DECISION check
+    class DMG,PRT,SPLIT,JOIN parallel
+    class IOU,SEV,COSTENG,SINGLE,MULTI logic
+    class OUT output
+    class REJECT,UNK,LOWCONF warn

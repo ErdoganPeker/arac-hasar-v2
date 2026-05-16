@@ -1,0 +1,109 @@
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor':'#1e3a8a',
+  'primaryTextColor':'#ffffff',
+  'primaryBorderColor':'#0f172a',
+  'lineColor':'#475569',
+  'secondaryColor':'#0891b2',
+  'tertiaryColor':'#f59e0b',
+  'fontSize':'14px'
+}}}%%
+flowchart TB
+    %% ============ CLIENTS ============
+    subgraph Clients["İstemci Katmanı"]
+        direction LR
+        WEB["Web App<br/>(Next.js 15)<br/>localhost:3000"]
+        MOBILE["Mobile App<br/>(React Native + Expo)<br/>iOS / Android"]
+        DESKTOP["Desktop App<br/>(Tauri 2 + React)<br/>Win / macOS / Linux"]
+    end
+
+    %% ============ GATEWAY ============
+    GATEWAY{{"API Gateway / Reverse Proxy<br/>(Nginx + CORS + Rate-Limit)"}}
+
+    %% ============ BACKEND ============
+    subgraph Backend["Backend Katmanı (FastAPI)"]
+        direction TB
+        API["FastAPI Server<br/>/api/v1/inspect<br/>(REST + WebSocket)"]
+        AUTH["Auth Module<br/>(API Key v1 / JWT v2)"]
+        MLSVC["ML Service Wrapper<br/>(Singleton, warm models)"]
+    end
+
+    %% ============ ASYNC ============
+    subgraph Async["Asenkron İş Katmanı"]
+        direction LR
+        QUEUE[("Redis<br/>Broker + PubSub")]
+        WORKER["Celery Worker<br/>(4x process pool)"]
+    end
+
+    %% ============ ML ============
+    subgraph ML["ML Pipeline (GPU)"]
+        direction TB
+        QC["Quality Check<br/>(blur, exposure)"]
+        YOLOD["YOLO11m-seg<br/>HASAR (6 sınıf)"]
+        YOLOP["YOLO11s-seg<br/>PARÇA (23 sınıf)"]
+        MATCH["IoU Eşleme<br/>+ Severity Ensemble"]
+        COST["Maliyet Motoru<br/>(TR cost_table.yaml)"]
+    end
+
+    %% ============ STORAGE ============
+    subgraph Storage["Veri ve Depolama"]
+        direction LR
+        PG[("PostgreSQL<br/>inspections,<br/>users, audit_log")]
+        REDIS[("Redis Cache<br/>session + result TTL")]
+        MINIO[("MinIO / S3<br/>original + annotated<br/>PNG")]
+    end
+
+    %% ============ OBSERVABILITY ============
+    subgraph Obs["Gözlemlenebilirlik"]
+        direction LR
+        SENTRY[/"Sentry"/]
+        PROM[/"Prometheus<br/>+ Grafana"/]
+    end
+
+    %% ===== FLOWS =====
+    WEB -->|HTTPS multipart| GATEWAY
+    MOBILE -->|HTTPS multipart| GATEWAY
+    DESKTOP -->|HTTPS multipart| GATEWAY
+
+    GATEWAY -->|/api/v1/*| API
+    API --> AUTH
+    API --> MLSVC
+
+    API -->|enqueue job| QUEUE
+    QUEUE --> WORKER
+    WORKER -->|invoke| ML
+
+    QC --> YOLOD
+    QC --> YOLOP
+    YOLOD --> MATCH
+    YOLOP --> MATCH
+    MATCH --> COST
+
+    API <-->|CRUD| PG
+    API <-->|cache| REDIS
+    API -->|upload| MINIO
+    WORKER -->|fetch image| MINIO
+    WORKER -->|write annotated| MINIO
+    WORKER -->|status update| PG
+    WORKER -->|publish| REDIS
+
+    API -.error.-> SENTRY
+    WORKER -.error.-> SENTRY
+    API -.metrics.-> PROM
+    WORKER -.metrics.-> PROM
+
+    %% ============ STYLES ============
+    classDef client    fill:#1e40af,stroke:#1e3a8a,color:#fff,stroke-width:2px
+    classDef gateway   fill:#7c3aed,stroke:#5b21b6,color:#fff,stroke-width:2px
+    classDef backend   fill:#0891b2,stroke:#155e75,color:#fff,stroke-width:2px
+    classDef async     fill:#f59e0b,stroke:#b45309,color:#1c1917,stroke-width:2px
+    classDef ml        fill:#dc2626,stroke:#7f1d1d,color:#fff,stroke-width:2px
+    classDef storage   fill:#059669,stroke:#064e3b,color:#fff,stroke-width:2px
+    classDef obs       fill:#6b7280,stroke:#374151,color:#fff,stroke-width:2px
+
+    class WEB,MOBILE,DESKTOP client
+    class GATEWAY gateway
+    class API,AUTH,MLSVC backend
+    class QUEUE,WORKER async
+    class QC,YOLOD,YOLOP,MATCH,COST ml
+    class PG,REDIS,MINIO storage
+    class SENTRY,PROM obs
