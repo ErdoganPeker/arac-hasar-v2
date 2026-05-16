@@ -17,8 +17,31 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
+
+# ---------------------------------------------------------------------------
+# IPv4-only DNS resolution (Render + Supabase compatibility shim)
+# ---------------------------------------------------------------------------
+# Render free tier has no IPv6 routes. Supabase publishes AAAA records (and
+# the new shared pooler hosts publish BOTH A and AAAA). asyncpg's connect
+# pipeline calls asyncio.loop.getaddrinfo with family=0 (AF_UNSPEC), which
+# returns AAAA first on dual-stack hosts; the IPv6 connect attempt then
+# fails with `OSError: [Errno 101] Network is unreachable` and asyncpg
+# bubbles up the IPv6 error instead of falling back to A.
+#
+# Setting FORCE_IPV4=1 (default in Render env) hard-pins getaddrinfo to
+# AF_INET so every DNS lookup — asyncpg, psycopg2, requests, boto3 — only
+# sees IPv4. This is the smallest patch that makes Supabase work on Render
+# without paying for the $4/mo IPv4 add-on.
+if os.getenv("FORCE_IPV4", "1") == "1":
+    _orig_getaddrinfo = socket.getaddrinfo
+
+    def _ipv4_only_getaddrinfo(host, port, family=0, *args, **kwargs):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, *args, **kwargs)
+
+    socket.getaddrinfo = _ipv4_only_getaddrinfo
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
