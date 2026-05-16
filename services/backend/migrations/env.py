@@ -79,10 +79,23 @@ async def run_migrations_online() -> None:
     section = config.get_section(config.config_ini_section) or {}
     section["sqlalchemy.url"] = url
 
+    # PgBouncer transaction-mode (Supabase shared pooler on :6543) does NOT
+    # support PostgreSQL prepared statements — asyncpg's default named-stmt
+    # cache fires DuplicatePreparedStatementError ("__asyncpg_stmt_1__")
+    # right at the dialect's "SELECT pg_catalog.version()" probe. Detect
+    # the pooler URL and disable both caches in the asyncpg connect kwargs.
+    connect_args = {}
+    if ":6543/" in url or "pooler.supabase.com" in url:
+        connect_args = {
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+        }
+
     connectable = async_engine_from_config(
         section,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:
