@@ -37,9 +37,36 @@ fetch_models() {
         return 0
     fi
 
+    # Hugging Face Hub fetch path (public model repo, no auth needed).
+    # Set HF_MODEL_REPO env to use this branch; otherwise falls back to S3.
+    if [[ -n "${HF_MODEL_REPO:-}" ]]; then
+        local hf_branch="${HF_MODEL_BRANCH:-main}"
+        log "Fetching weights from https://huggingface.co/${HF_MODEL_REPO}/resolve/${hf_branch}/ -> ${MODEL_DIR}/"
+        mkdir -p "${MODEL_DIR}"
+        for w in "${REQUIRED_WEIGHTS[@]}"; do
+            local dst="${MODEL_DIR}/${w}"
+            if [[ -f "${dst}" ]]; then
+                log "  ${w} already cached, skipping."
+                continue
+            fi
+            local url="https://huggingface.co/${HF_MODEL_REPO}/resolve/${hf_branch}/${w}?download=true"
+            log "  downloading ${url}"
+            if ! curl --fail --silent --show-error --location \
+                      --retry 5 --retry-delay 3 --max-time 600 \
+                      --output "${dst}.tmp" "${url}"; then
+                log "ERROR: curl failed for ${url}"
+                rm -f "${dst}.tmp"
+                exit 1
+            fi
+            mv "${dst}.tmp" "${dst}"
+        done
+        log "All weights fetched from Hugging Face."
+        return 0
+    fi
+
     if [[ -z "${MODEL_S3_BUCKET:-}" ]]; then
-        log "ERROR: MODEL_S3_BUCKET not set and weights missing. Cannot start."
-        log "       Set MODEL_S3_BUCKET + MODEL_S3_PREFIX, or rebuild with Dockerfile.embedded."
+        log "ERROR: HF_MODEL_REPO and MODEL_S3_BUCKET both unset and weights missing."
+        log "       Set HF_MODEL_REPO=owner/repo (preferred) or MODEL_S3_BUCKET."
         exit 1
     fi
 
@@ -64,9 +91,10 @@ if os.environ.get("S3_ACCESS_KEY"):
     kwargs["aws_access_key_id"] = os.environ["S3_ACCESS_KEY"]
     kwargs["aws_secret_access_key"] = os.environ["S3_SECRET_KEY"]
 
-# Backblaze B2 + Cloudflare R2 require AWS Signature V4 + virtual-hosted-style
-# addressing. Without these flags boto3 falls back to s3v2/path-style which
-# B2 answers with 403 Forbidden on HeadObject even when keys are valid.
+# IMPORTANT: boto3 s3.download_file() and s3.upload_file() call HeadObject
+# under the hood. B2 + bucket-scoped Application Keys ("List All Bucket
+# Names" disabled) return 403 on HeadObject even when GetObject succeeds.
+# Use get_object directly + stream to disk; it skips the HeadObject.
 config = Config(
     retries={"max_attempts": 5, "mode": "standard"},
     signature_version="s3v4",
@@ -81,7 +109,13 @@ for w in weights:
         continue
     key = f"{prefix}/{w}"
     print(f"[entrypoint]   downloading s3://{bucket}/{key} -> {dst}", file=sys.stderr)
-    s3.download_file(bucket, key, dst)
+    resp = s3.get_object(Bucket=bucket, Key=key)
+    tmp = dst + ".tmp"
+    body = resp["Body"]
+    with open(tmp, "wb") as f:
+        for chunk in iter(lambda: body.read(8 * 1024 * 1024), b""):
+            f.write(chunk)
+    os.replace(tmp, dst)
 print("[entrypoint] All weights fetched.", file=sys.stderr)
 PYEOF
 }
