@@ -3,6 +3,7 @@ import createNextIntlPlugin from 'next-intl/plugin';
 
 const withNextIntl = createNextIntlPlugin('./i18n.ts');
 
+// Build target: production (Vercel deploy)
 const config: NextConfig = {
   reactStrictMode: true,
   output: 'standalone',
