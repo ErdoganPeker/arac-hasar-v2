@@ -83,13 +83,22 @@ class Settings(BaseSettings):
     )
 
     # ---- ML pipeline ----
-    damage_weights: str = f"{_DEFAULT_BUNDLE}/damage_best.pt"
-    parts_weights: str = f"{_DEFAULT_BUNDLE}/parts_best.pt"
-    severity_weights: str = f"{_DEFAULT_BUNDLE}/severity_best.pt"
+    # Default: entrypoint.sh MODEL_DIR'a indirir; production'da /app/models.
+    # Lokal dev'de bundle path override edilebilir (DAMAGE_WEIGHTS env).
+    damage_weights: str = os.getenv("MODEL_DIR", _DEFAULT_BUNDLE) + "/damage_best.pt"
+    parts_weights: str = os.getenv("MODEL_DIR", _DEFAULT_BUNDLE) + "/parts_best.pt"
+    severity_weights: str = os.getenv("MODEL_DIR", _DEFAULT_BUNDLE) + "/severity_best.pt"
     cost_table_path: str = "services/backend/cost_table.yaml"
     ml_device: str = "cuda"   # cuda|cpu|mps
     ml_imgsz: int = 640
-    ml_warmup_on_startup: bool = True
+    # RAM-tasarrufu (Render free 512MB): default kapali — pipeline ilk
+    # /inspect cagrisinda lazy yuklenir. Eager warmup istenirse env ile
+    # ML_WARMUP_ON_STARTUP=1 verilebilir (dev/GPU host'larda hizli baslangic).
+    ml_warmup_on_startup: bool = False
+    # RAM-tasarrufu: her inference sonrasi modelleri belleğe geri al ve
+    # gc tetikle. CPU-only deployment'larda (Render starter 512MB) ON; GPU
+    # dev'de OFF (her inference 2-3sn extra cold-load yememek icin).
+    ml_unload_after_inference: bool = False
 
     # ---- S3 storage ----
     # Render production: AWS S3 ya da Cloudflare R2. Dev: MinIO.
