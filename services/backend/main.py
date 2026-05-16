@@ -763,7 +763,8 @@ async def _store_upload(file: UploadFile, inspection_id: str, index: int) -> tup
     # Pilot/HF Spaces fallback: S3 provider (B2) yazma fail olursa ML sonucu
     # yine dondur; image kaydetme zorunlu degil. Visualization endpoint'i
     # bu durumda image bulamaz ama core hasar tespiti calismaya devam eder.
-    if os.getenv("STORAGE_OPTIONAL", "0") == "1":
+    import os as _os
+    if _os.getenv("STORAGE_OPTIONAL", "0") == "1":
         try:
             url = await upload_image(content, key, content_type=file.content_type)
         except Exception as exc:  # noqa: BLE001
