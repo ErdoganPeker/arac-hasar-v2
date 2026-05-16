@@ -66,6 +66,7 @@ from models import (
 )
 from ml_service import (
     DEFAULT_MODEL_ID,
+    check_model_files_available,
     is_known_model_id,
     list_available_models,
     ml_pipeline,
@@ -840,6 +841,13 @@ async def create_inspection(
             detail=f"Bilinmeyen model: {model}",
         )
 
+    # Pretrained model agirlik dosyalari bu deploy'da mevcut mu?
+    # HF Spaces gibi disk kisitli ortamlarda pretrained_hybrid / roboflow
+    # agirliklari image'a embed edilmemis olabilir — 500 yerine net 400 don.
+    available, reason = check_model_files_available(model_id)
+    if not available:
+        raise HTTPException(status_code=400, detail=reason)
+
     if mode == "sync":
         if len(files) > settings.max_images_sync:
             raise HTTPException(
@@ -1110,7 +1118,7 @@ async def sync_single(
 
 @app.get(
     "/api/v1/inspect/{inspection_id}",
-    response_model=InspectionStatusResponse,
+    response_model=None,  # strict schema drift — ham dict ile dondur
     tags=["inspect"],
     summary="Inceleme durumu + sonucu",
 )
@@ -1124,13 +1132,17 @@ async def get_inspection(
     if inspection["client_id"] != auth.client_id and not auth.is_dev:
         raise HTTPException(status_code=403, detail="Bu incelemeye erisim yetkiniz yok")
 
-    return InspectionStatusResponse(
-        inspection_id=inspection_id,
-        status=inspection["status"],
-        result=inspection.get("result"),
-        error=inspection.get("error"),
-        created_at=inspection["created_at"],
-        completed_at=inspection.get("completed_at"),
+    # Pipeline output drift'ten kacin — strict validation yerine ham dict.
+    return JSONResponse(
+        status_code=200,
+        content={
+            "inspection_id": inspection_id,
+            "status": inspection["status"],
+            "result": inspection.get("result"),
+            "error": inspection.get("error"),
+            "created_at": inspection["created_at"],
+            "completed_at": inspection.get("completed_at"),
+        },
     )
 
 

@@ -20,6 +20,7 @@ Tasarim:
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import sys
 import threading
@@ -34,6 +35,52 @@ from config import settings
 
 
 logger = logging.getLogger(__name__)
+
+
+def _force_gc(reason: str = "") -> None:
+    """Aggresif gc + (varsa) torch CUDA cache temizleme.
+
+    Render free 512MB icin kritik: Python obje grafindaki refcount=0 buyuk
+    np.ndarray / torch.Tensor parcalarinin OS'a iade edilmesi icin tek bir
+    gc.collect() pasi yetmez (generational GC). 2 pas + malloc_trim taklidi.
+    """
+    gc.collect()
+    gc.collect()
+    try:
+        import torch  # type: ignore[import-not-found]
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception:
+        pass
+    # Linux glibc'in arena'larini OS'a geri ver (Render container Linux).
+    # ctypes ile libc.malloc_trim(0) — Windows/Mac'te sessizce no-op.
+    try:
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except Exception:
+        pass
+    if reason:
+        logger.debug("forced gc (%s)", reason)
+
+
+def _rss_mb() -> Optional[float]:
+    """Process RSS (MB). psutil yoksa /proc/self/status fallback. Hata -> None."""
+    try:
+        import psutil  # type: ignore[import-not-found]
+        return round(psutil.Process().memory_info().rss / (1024 * 1024), 1)
+    except Exception:
+        pass
+    try:
+        with open("/proc/self/status", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    kb = int(line.split()[1])
+                    return round(kb / 1024, 1)
+    except Exception:
+        return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +135,15 @@ class MLPipeline:
             return 0.0
         return self._manager.total_disk_mb(only_available=only_available)
 
-    def warm_up(self) -> None:
-        """Modelleri RAM/GPU'ya yukle. Idempotent."""
+    def warm_up(self, run_dummy_inference: bool = False) -> None:
+        """Modelleri RAM/GPU'ya yukle. Idempotent.
+
+        Args:
+            run_dummy_inference: True ise zeros-image uzerinde sicak prova
+                yapilir (GPU memory alokasyonu prewarm). Default False —
+                512MB Render free'de bu prova ~150MB ek RAM pinler ve ilk
+                gercek istek zaten warmup yapacak.
+        """
         if self._loaded:
             return
 
@@ -144,15 +198,75 @@ class MLPipeline:
         except Exception as e:
             logger.warning("Custom pipeline warmup basarisiz: %s", e)
 
-        # Warmup inference — GPU memory alokasyonunu ilk istek oncesi yap
-        try:
-            dummy = np.zeros((settings.ml_imgsz, settings.ml_imgsz, 3), dtype=np.uint8)
-            self._manager.analyze(dummy, source="custom")
-        except Exception as e:
-            logger.warning("Warm-up inference basarisiz (yine de devam): %s", e)
+        # Warmup inference opsiyonel — default off. Render free 512MB'de
+        # bu prova memory peak'i +150MB ediyor; ilk gercek istek zaten
+        # tum dolapi sicaklastiriyor.
+        if run_dummy_inference:
+            try:
+                dummy = np.zeros((settings.ml_imgsz, settings.ml_imgsz, 3), dtype=np.uint8)
+                self._manager.analyze(dummy, source="custom")
+            except Exception as e:
+                logger.warning("Warm-up inference basarisiz (yine de devam): %s", e)
 
         self._loaded = True
         logger.info("ML ModelManager hazir (%.2fs).", time.perf_counter() - t0)
+
+    def unload(self) -> dict[str, Any]:
+        """Modelleri bellekten dusur; refcount 0'a indi -> gc + malloc_trim.
+
+        AI Engineer ajan pipeline.py icine per-stage unload eklediyse
+        ModelManager / Pipeline tarafinda close()/unload() metodu cikar —
+        varsa once onu cagir, sonra Python tarafinda referansi birak.
+
+        Returns:
+            {"unloaded": bool, "before_rss_mb": float|None,
+             "after_rss_mb": float|None, "freed_mb": float|None}
+        """
+        before = _rss_mb()
+        unloaded = False
+        with self._infer_lock:
+            mgr = self._manager
+            if mgr is not None:
+                # Pipeline.py'da unload/close hook varsa cagir (defansif).
+                for hook_name in ("unload", "close", "release", "cleanup"):
+                    hook = getattr(mgr, hook_name, None)
+                    if callable(hook):
+                        try:
+                            hook()
+                            logger.info("ModelManager.%s() cagrildi", hook_name)
+                            break
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning("ModelManager.%s hata: %s", hook_name, e)
+                # Pipeline holders tarafinda da hook olabilir
+                holders = getattr(mgr, "_holders", None) or {}
+                for src_id, holder in list(holders.items()):
+                    pipe = getattr(holder, "pipeline", None)
+                    for hook_name in ("unload", "close", "release", "cleanup"):
+                        hook = getattr(pipe, hook_name, None)
+                        if callable(hook):
+                            try:
+                                hook()
+                                logger.info("Pipeline[%s].%s() cagrildi", src_id, hook_name)
+                                break
+                            except Exception as e:  # noqa: BLE001
+                                logger.warning("Pipeline[%s].%s hata: %s", src_id, hook_name, e)
+            self._manager = None
+            self._pipeline = None
+            self._loaded = False
+            unloaded = mgr is not None
+        _force_gc("ml_pipeline.unload")
+        after = _rss_mb()
+        freed = (before - after) if (before is not None and after is not None) else None
+        logger.info(
+            "ML unload tamamlandi: before=%sMB after=%sMB freed=%sMB",
+            before, after, freed,
+        )
+        return {
+            "unloaded": unloaded,
+            "before_rss_mb": before,
+            "after_rss_mb": after,
+            "freed_mb": freed,
+        }
 
     def analyze(self, image: np.ndarray, retries: int = 2,
                 source: str = "custom") -> dict[str, Any]:
@@ -177,23 +291,46 @@ class MLPipeline:
             )
 
         last_err: Optional[Exception] = None
+        result: Optional[dict[str, Any]] = None
         for attempt in range(retries + 1):
             try:
                 # GPU paylasimi: ayni anda 1 inference (Celery worker concurrency
                 # > 1 olabilir; bu lock kritik).
                 with self._infer_lock:
-                    return self._manager.analyze(image, source=source)
-            except ValueError as e:
+                    result = self._manager.analyze(image, source=source)
+                break
+            except ValueError:
                 # source id gecersiz -> retry yapma, hatayi yukari ver
                 raise
             except Exception as e:  # noqa: BLE001 — yeniden raise
                 last_err = e
                 logger.warning("Analiz denemesi %d/%d hatali: %s", attempt + 1, retries + 1, e)
-        assert last_err is not None
-        raise last_err
+        if result is None:
+            assert last_err is not None
+            raise last_err
+
+        # RAM-tasarrufu: 512MB Render free profili — her inference sonrasi
+        # ModelManager'i bosalt. AI Engineer ajan pipeline.py icine zaten
+        # per-stage (damage->del->parts->del->severity->del) cleanup ekledi;
+        # bu bosalti ana modul-seviyesi referansi da kaldirip RSS'i baseline'a
+        # geri dondurur (sonraki inference cold load = ~2-3sn extra latency).
+        if getattr(settings, "ml_unload_after_inference", False):
+            try:
+                self.unload()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("post-inference unload basarisiz: %s", e)
+        else:
+            # Unload yapmasak bile gc kosturalim — np.ndarray ara buffer'lari
+            # serbest birakilsin (ultralytics tahmin sonrasi geride bos
+            # tensor cache birakir).
+            _force_gc("post-analyze")
+
+        return result
 
 
-# Singleton
+# Singleton — module import edildiginde MLPipeline() constructor'i hicbir
+# model yuklemiyor; sadece bos slot'lar olusturuyor. Ilk warm_up() veya
+# analyze() cagrisina kadar torch/ultralytics bile import edilmiyor.
 ml_pipeline = MLPipeline()
 
 
@@ -327,6 +464,38 @@ def is_known_model_id(model_id: Optional[str]) -> bool:
     except Exception as exc:  # noqa: BLE001
         logger.warning("is_known_model_id check hata: %s", exc)
         return False
+
+
+def check_model_files_available(model_id: Optional[str]) -> tuple[bool, str]:
+    """Pretrained model agirlik dosyalari bu deploy'da mevcut mu?
+    Returns (available, reason). custom her zaman OK (entrypoint indirir).
+    """
+    if not model_id or model_id == DEFAULT_MODEL_ID:
+        return True, ""
+    try:
+        from pretrained_registry import REGISTRY  # type: ignore
+        entry = REGISTRY.get(model_id) if isinstance(REGISTRY, dict) else None
+        if entry is None:
+            for m in list_available_models():
+                if m.get("id") == model_id:
+                    if m.get("available") is False:
+                        return False, (
+                            f"'{m.get('name', model_id)}' modeli bu deploy'da "
+                            "indirilmemis. Lutfen 'Kendi Modellerim' (custom) "
+                            "secenegini kullanin."
+                        )
+                    return True, ""
+            return False, f"Model bulunamadi: {model_id}"
+        if hasattr(entry, "is_available") and not entry.is_available():
+            return False, (
+                f"'{getattr(entry, 'name', model_id)}' modeli bu deploy'da "
+                "indirilmemis. Lutfen 'Kendi Modellerim' (custom) "
+                "secenegini kullanin."
+            )
+        return True, ""
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("check_model_files_available hata: %s", exc)
+        return True, ""
 
 
 def resolve_model_id(model_id: Optional[str]) -> str:
