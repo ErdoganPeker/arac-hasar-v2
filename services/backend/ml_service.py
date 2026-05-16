@@ -279,6 +279,11 @@ class MLPipeline:
                 pretrained_registry.py icinde tanimli — "pretrained_roboflow_cardd",
                 "pretrained_ultralytics_yolo11m", "pretrained_hybrid").
         """
+        # Roboflow Hosted API path — image'a embed edilmemis pretrained
+        # modeller icin HTTP API uzerinden inference.
+        if source == "pretrained_roboflow_cardd":
+            return self._analyze_via_roboflow(image)
+
         if not self._loaded:
             # Lazy warm-up: HTTP startup'ta atlandiysa burada kurtar
             logger.warning("Pipeline yuklenmemis, lazy warm-up tetikleniyor")
@@ -309,6 +314,10 @@ class MLPipeline:
             assert last_err is not None
             raise last_err
 
+        # ---- Roboflow Hosted API ozel pipeline ----  (sinif disi degil; gomulu)
+        # Asagidaki _analyze_via_roboflow methodu pre-trained Roboflow modeli
+        # icin custom YOLO pipeline'i atlatir; sadece HTTP API cagrisi yapar.
+
         # RAM-tasarrufu: 512MB Render free profili — her inference sonrasi
         # ModelManager'i bosalt. AI Engineer ajan pipeline.py icine zaten
         # per-stage (damage->del->parts->del->severity->del) cleanup ekledi;
@@ -326,6 +335,57 @@ class MLPipeline:
             _force_gc("post-analyze")
 
         return result
+
+    def _analyze_via_roboflow(self, image: np.ndarray) -> dict[str, Any]:
+        """Pretrained Roboflow scratch_dent v3 modelini HTTP API ile cagir.
+
+        Custom pipeline atlatilir; ne damage modeli ne parts ne severity
+        yuklenir. Sadece bbox-detection sonucu doner. Frontend bunu
+        "Roboflow ile basit hasar tespiti" olarak gosterir.
+        """
+        import cv2  # local import
+        from roboflow_inference import (  # type: ignore
+            run_roboflow_damage_inference,
+            is_roboflow_available,
+        )
+
+        if not is_roboflow_available():
+            raise RuntimeError(
+                "ROBOFLOW_API_KEY env yok — Roboflow pretrained modeli "
+                "icin API key gerekli. HF Spaces secret olarak ekleyin."
+            )
+
+        h, w = image.shape[:2]
+        ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        if not ok:
+            raise RuntimeError("Goruntu JPEG encode edilemedi")
+        img_bytes = buf.tobytes()
+
+        damages = run_roboflow_damage_inference(
+            img_bytes,
+            workspace="carpro",
+            project="car-scratch-and-dent",
+            version=3,
+        )
+
+        return {
+            "image_size": {"width": int(w), "height": int(h)},
+            "parts": [],
+            "damages": damages,
+            "summary": {
+                "total_damage_count": len(damages),
+                "estimated_repair_days": 0,
+                "model_source": "roboflow",
+                "note": (
+                    "Roboflow scratch_dent v3 hosted inference. "
+                    "Parca segmentasyonu ve siddet siniflandirmasi yok; "
+                    "sadece basit hasar bbox tespiti."
+                ),
+            },
+            "model_versions": {
+                "pretrained_source": "roboflow_cardd_scratch_dent_v3",
+            },
+        }
 
 
 # Singleton — module import edildiginde MLPipeline() constructor'i hicbir

@@ -106,6 +106,11 @@ class PretrainedEntry:
         return p
 
     def is_available(self) -> bool:
+        # Roboflow Hosted API ile cagrilan modeller: weight dosyasi yok,
+        # API key set ise kullanilabilir.
+        if self.source == "roboflow" and self.roboflow:
+            import os
+            return bool(os.getenv("ROBOFLOW_API_KEY") or os.getenv("ROBOFLOW_KEY"))
         return self.resolved_path().exists()
 
     def to_public_dict(self) -> Dict[str, Any]:
@@ -235,69 +240,14 @@ _ENTRIES: List[PretrainedEntry] = [
             "kirilmasini tespit etmez; CarDD trainset'imizden dar kapsamli."
         ),
     ),
-    PretrainedEntry(
-        id="roboflow_car_parts_seg",
-        name="Roboflow Car Parts Segmentation",
-        description=(
-            "Roboflow Universe public projesi (popular-benchmarks/"
-            "car-parts-segmentation). Tampon, kapı, far, kaput vb. parça "
-            "segmentasyonu."
-        ),
-        source="roboflow",
-        source_url=(
-            "https://universe.roboflow.com/popular-benchmarks/"
-            "car-parts-segmentation"
-        ),
-        license="CC-BY-4.0",
-        role="parts",
-        classes=[
-            "front_bumper", "back_bumper", "hood", "front_door", "back_door",
-            "front_light", "back_light", "windshield", "fender", "trunk",
-        ],
-        weights_path="roboflow_car_parts_seg/weights/best.pt",
-        roboflow={
-            "workspace": "popular-benchmarks",
-            "project": "car-parts-segmentation",
-            "version": 2,
-            "format": "yolov8",
-        },
-        accuracy_hint="Roboflow rapor: seg mAP@50 ~0.71",
-        size_mb=26.0,
-        intended_use=(
-            "Parça segmentasyonu. Sınıf adları kendi parts modelimizle "
-            "%70 ortusur; output adapter eslestirme yapar."
-        ),
-    ),
-    PretrainedEntry(
-        id="roboflow_cardd_severity",
-        name="Roboflow Car Damage Severity",
-        description=(
-            "Roboflow Universe public projesi (sreevishnu-damarla/"
-            "car-damage-severity-mr5kk). Hafif/Orta/Ağır 3-sınıflı "
-            "siddet sınıflandırması."
-        ),
-        source="roboflow",
-        source_url=(
-            "https://universe.roboflow.com/sreevishnu-damarla/"
-            "car-damage-severity-mr5kk"
-        ),
-        license="CC-BY-4.0",
-        role="severity",
-        classes=["minor", "moderate", "severe"],
-        weights_path="roboflow_cardd_severity/weights/best.pt",
-        roboflow={
-            "workspace": "sreevishnu-damarla",
-            "project": "car-damage-severity-mr5kk",
-            "version": 1,
-            "format": "yolov8",
-        },
-        accuracy_hint="Roboflow rapor: cls accuracy ~0.82",
-        size_mb=15.0,
-        intended_use=(
-            "Bir hasar crop'u verildiğinde 3-sınıflı şiddet tahmini. "
-            "Adapter minor->hafif, moderate->orta, severe->agir eşler."
-        ),
-    ),
+    # NOT (2026-05-16): roboflow_car_parts_seg ve roboflow_cardd_severity
+    # registry'den kaldirildi. Sebep:
+    #   - popular-benchmarks/car-parts-segmentation v2: dataset zip bozuk
+    #     ("File is not a zip file"), hosted inference de basarisiz.
+    #   - sreevishnu-damarla/car-damage-severity-mr5kk: workspace silinmis
+    #     (404 GraphMethodException).
+    # Yeniden kullanima alinabilmesi icin alternatif Roboflow Universe
+    # projeleri arasini deniyoruz; bulunca tekrar eklenecek.
     # ---- HuggingFace classifier (opsiyonel) -----------------------------
     PretrainedEntry(
         id="hf_dima806_car_damage_cls",
@@ -346,34 +296,18 @@ _SOURCES: List[ModelSource] = [
     ),
     ModelSource(
         id="pretrained_roboflow_cardd",
-        name="Pre-trained: Roboflow CarDD Pipeline",
+        name="Pre-trained: Roboflow Scratch & Dent",
         description=(
-            "Roboflow Universe public modelleri: scratch&dent damage + parça "
-            "segmentasyonu + 3-sınıflı şiddet. Tam pre-trained pipeline."
+            "Roboflow Universe carpro/car-scratch-and-dent v3 modeli. "
+            "İki sınıflı (scratch, dent) hızlı bbox tespiti. "
+            "Hosted Inference API ile çağrılır — parça segmentasyonu "
+            "ve şiddet sınıflandırması bu modelde yok."
         ),
         kind="pretrained",
-        entries=[
-            "roboflow_cardd_scratch_dent",
-            "roboflow_car_parts_seg",
-            "roboflow_cardd_severity",
-        ],
-        fallback_to_custom=["severity"],  # roboflow_severity yoksa kendi cnn'i
+        entries=["roboflow_cardd_scratch_dent"],
     ),
-    ModelSource(
-        id="pretrained_hybrid",
-        name="Pre-trained: Hibrit (Ultralytics + Roboflow)",
-        description=(
-            "Ultralytics YOLO11m araç tespiti + Roboflow scratch&dent damage + "
-            "Roboflow parts. En zengin pre-trained kombinasyon."
-        ),
-        kind="pretrained",
-        entries=[
-            "ultralytics_yolo11m_seg",
-            "roboflow_cardd_scratch_dent",
-            "roboflow_car_parts_seg",
-        ],
-        fallback_to_custom=["severity"],
-    ),
+    # pretrained_hybrid kaldırıldı — Roboflow parts modeli erişilemez
+    # olduğu için hibrit kombinasyon yapılamıyor.
 ]
 
 
