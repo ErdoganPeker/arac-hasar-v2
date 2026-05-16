@@ -111,7 +111,14 @@ _MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "20"))
 _POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
 _POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))
 _SQL_ECHO = os.getenv("DB_ECHO", "false").lower() == "true"
-_USE_PGBOUNCER = os.getenv("DB_USE_PGBOUNCER", "false").lower() == "true"
+# Auto-detect: any Supabase pooler URL (port 6543 or "pooler.supabase.com" in host)
+# implies pgBouncer transaction mode → prepared statements MUST be disabled.
+# Explicit DB_USE_PGBOUNCER=true still wins for non-Supabase pgBouncer setups.
+_USE_PGBOUNCER = (
+    os.getenv("DB_USE_PGBOUNCER", "false").lower() == "true"
+    or ":6543/" in DATABASE_URL
+    or "pooler.supabase.com" in DATABASE_URL
+)
 
 
 def _create_engine(url: str = DATABASE_URL) -> AsyncEngine:
