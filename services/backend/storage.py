@@ -84,7 +84,11 @@ async def upload_image(
 
     boto3 senkron — asyncio.to_thread ile event-loop'u bloke etmiyoruz.
     """
-    extra_args: dict = {}
+    # B2/MinIO uyumlulugu: boto3 1.36+ default'unda streaming chunked PUT
+    # ("Seed signature" / "IncompleteBody" hatalari). ContentLength + BytesIO
+    # ile explicit length veriliyor, payload tek seferde imzalaniyor.
+    import io as _io
+    extra_args: dict = {"ContentLength": len(content)}
     if content_type:
         extra_args["ContentType"] = content_type
 
@@ -92,7 +96,7 @@ async def upload_image(
         _client().put_object(
             Bucket=settings.s3_bucket,
             Key=key,
-            Body=content,
+            Body=_io.BytesIO(content),
             **extra_args,
         )
 
