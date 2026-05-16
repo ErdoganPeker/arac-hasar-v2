@@ -14,7 +14,7 @@ from typing import List, Optional
 
 from typing import Annotated
 
-from pydantic import Field, computed_field, field_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 try:
@@ -48,7 +48,13 @@ class Settings(BaseSettings):
 
     # ---- JWT auth ----
     # Production'da MUTLAKA cryptographically random 32+ byte degeri kullan.
-    jwt_secret: str = "CHANGE-ME-DEV-SECRET-NOT-FOR-PRODUCTION-USE-32B"
+    # security.py modulu tarihsel olarak JWT_SECRET_KEY env'i okuyordu; config
+    # tarafi JWT_SECRET kullaniyordu. AliasChoices ile her iki adi da destekle
+    # (render.yaml `generateValue: true` -> JWT_SECRET_KEY uretir).
+    jwt_secret: str = Field(
+        default="CHANGE-ME-DEV-SECRET-NOT-FOR-PRODUCTION-USE-32B",
+        validation_alias=AliasChoices("JWT_SECRET", "JWT_SECRET_KEY"),
+    )
     jwt_algorithm: str = "HS256"
     jwt_access_expiry_seconds: int = 60 * 15             # 15dk (kisaltildi)
     jwt_refresh_expiry_seconds: int = 60 * 60 * 24 * 7   # 7g (kisaltildi)
