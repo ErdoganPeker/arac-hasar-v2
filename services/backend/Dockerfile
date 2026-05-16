@@ -78,7 +78,8 @@ COPY --chown=app:app parts.yaml             ./
 
 COPY --chown=app:app scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh && \
-    mkdir -p ${MODEL_DIR} && chown -R app:app ${MODEL_DIR}
+    mkdir -p ${MODEL_DIR} /app/pretrained && \
+    chown -R app:app ${MODEL_DIR} /app/pretrained
 
 USER app
 

@@ -38,8 +38,20 @@ from typing import Any, Dict, List, Optional
 # Paths
 # ---------------------------------------------------------------------------
 ML_ROOT = Path(__file__).resolve().parent
-PRETRAINED_DIR = ML_ROOT / "pretrained"
-PRETRAINED_DIR.mkdir(parents=True, exist_ok=True)
+# PRETRAINED_DIR is overridable via env (PRETRAINED_DIR) so production hosts
+# with a read-only application dir can point it at writable scratch space
+# (e.g. /tmp/pretrained on Render, /data on Fly.io).
+PRETRAINED_DIR = Path(os.getenv("PRETRAINED_DIR", str(ML_ROOT / "pretrained")))
+try:
+    PRETRAINED_DIR.mkdir(parents=True, exist_ok=True)
+except (PermissionError, OSError) as _e:
+    import logging as _logging
+    _logging.warning(
+        "pretrained_registry: cannot create %s (%s). Set PRETRAINED_DIR env to "
+        "a writable path or rebuild image with chown on this directory. "
+        "Pretrained model downloads will fail until then.",
+        PRETRAINED_DIR, _e,
+    )
 
 
 # ---------------------------------------------------------------------------
